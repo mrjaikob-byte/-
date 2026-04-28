@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
   Modal,
   Alert,
   Pressable,
+  Animated,
+  Easing,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -27,22 +29,20 @@ const ROUND_OPTIONS = [6, 8, 10];
 const X_VALUE = -25;
 const XX_VALUE = -50;
 
-// Position layouts based on number of slots and mode
-// position index meaning: 0=top, 1=right, 2=bottom, 3=left
+const PLAYER_COLORS = ["#7C3AED", "#EC4899", "#10B981", "#F59E0B"];
+const TEAM_COLORS = ["#7C3AED", "#EC4899"];
+
+// position 0=top, 1=right, 2=bottom, 3=left
 function getSlotPositions(numSlots: number, mode: Mode): number[] {
-  if (mode === "pairs") return [0, 1, 2, 3]; // 4 players: top, right, bottom, left
+  if (mode === "pairs") return [0, 1, 2, 3];
   if (numSlots === 2) return [0, 2];
-  if (numSlots === 3) return [0, 1, 3]; // top, right, left
+  if (numSlots === 3) return [0, 1, 3];
   return [0, 1, 2, 3];
 }
 
-// In pairs mode: players at positions 0&2 are team A, 1&3 are team B
 function teamIndexForSlot(slotIndex: number): 0 | 1 {
   return slotIndex % 2 === 0 ? 0 : 1;
 }
-
-const PLAYER_COLORS = ["#7C3AED", "#EC4899", "#10B981", "#F59E0B"];
-const TEAM_COLORS = ["#7C3AED", "#EC4899"];
 
 export default function CardsCalculator() {
   const router = useRouter();
@@ -50,7 +50,7 @@ export default function CardsCalculator() {
   type Phase = "setup" | "playing";
   const [phase, setPhase] = useState<Phase>("setup");
 
-  // Setup state
+  // Setup
   const [mode, setMode] = useState<Mode>("individual");
   const [numPlayers, setNumPlayers] = useState<2 | 3 | 4>(4);
   const [rounds, setRounds] = useState<number>(8);
@@ -62,18 +62,15 @@ export default function CardsCalculator() {
     "اللاعب 4",
   ]);
 
-  // Game state
+  // Game
   const [players, setPlayers] = useState<Entity[]>([]);
   const [teams, setTeams] = useState<Entity[]>([]);
 
-  // Modal: entry editor for selected entity
   const [selected, setSelected] = useState<{
     type: "player" | "team";
     index: number;
   } | null>(null);
   const [entryInput, setEntryInput] = useState<string>("");
-
-  // Results modal
   const [showResults, setShowResults] = useState<boolean>(false);
 
   const [hydrated, setHydrated] = useState(false);
@@ -104,29 +101,20 @@ export default function CardsCalculator() {
     AsyncStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        phase,
-        mode,
-        numPlayers,
-        rounds,
-        setupNames,
-        players,
-        teams,
+        phase, mode, numPlayers, rounds, setupNames, players, teams,
       })
     ).catch(() => {});
   }, [phase, mode, numPlayers, rounds, setupNames, players, teams, hydrated]);
 
-  // Effective entities for display
   const numSlots = mode === "pairs" ? 4 : numPlayers;
   const slotPositions = useMemo(
     () => getSlotPositions(numSlots, mode),
     [numSlots, mode]
   );
 
-  // Totals
   const totalFor = (e: Entity) =>
     e.entries.reduce((s, en) => s + en.value, 0);
 
-  // Round progress: based on entries count
   const entitiesArr = mode === "pairs" ? teams : players;
   const minEntries = entitiesArr.length
     ? Math.min(...entitiesArr.map((e) => e.entries.length))
@@ -138,15 +126,53 @@ export default function CardsCalculator() {
   const allDone =
     entitiesArr.length > 0 &&
     entitiesArr.every((e) => e.entries.length >= rounds);
+  // Round complete = all entities submitted for current round but game not done
+  const roundComplete =
+    entitiesArr.length > 0 && minEntries === maxEntries && minEntries > 0 && !allDone;
 
-  // Auto-show results when complete
+  // Auto results when complete - also close entry modal
   useEffect(() => {
     if (phase === "playing" && allDone && !showResults) {
-      setShowResults(true);
+      setSelected(null);
+      setEntryInput("");
+      // small delay so any in-flight UI updates settle
+      const t = setTimeout(() => setShowResults(true), 300);
+      return () => clearTimeout(t);
     }
   }, [phase, allDone, showResults]);
 
-  // Setup helpers
+  // ===== Animations =====
+  const bannerAnim = useRef(new Animated.Value(0)).current; // 0 hidden, 1 shown
+  const [bannerVisible, setBannerVisible] = useState(false);
+  const bannerRoundRef = useRef<number>(0);
+
+  // Show banner each time min entries crosses to a higher value (round done)
+  useEffect(() => {
+    if (phase !== "playing") return;
+    // We define "round just completed" = minEntries went up to N>0 and not all done
+    if (minEntries > 0 && minEntries > bannerRoundRef.current && !allDone) {
+      bannerRoundRef.current = minEntries;
+      setBannerVisible(true);
+      Animated.sequence([
+        Animated.spring(bannerAnim, {
+          toValue: 1,
+          useNativeDriver: true,
+          friction: 7,
+          tension: 60,
+        }),
+        Animated.delay(2200),
+        Animated.timing(bannerAnim, {
+          toValue: 0,
+          duration: 350,
+          useNativeDriver: true,
+          easing: Easing.in(Easing.quad),
+        }),
+      ]).start(() => setBannerVisible(false));
+    }
+    if (minEntries === 0) bannerRoundRef.current = 0;
+  }, [minEntries, phase, allDone, bannerAnim]);
+
+  // ===== Setup helpers =====
   const setName = (idx: number, val: string) => {
     setSetupNames((prev) => {
       const next = [...prev];
@@ -173,15 +199,17 @@ export default function CardsCalculator() {
         }))
       );
     } else {
-      const ps = Array.from({ length: numPlayers }, (_, i) => ({
-        id: `p${i}`,
-        name: setupNames[i] || `اللاعب ${i + 1}`,
-        entries: [],
-      }));
-      setPlayers(ps);
+      setPlayers(
+        Array.from({ length: numPlayers }, (_, i) => ({
+          id: `p${i}`,
+          name: setupNames[i] || `اللاعب ${i + 1}`,
+          entries: [],
+        }))
+      );
       setTeams([]);
     }
     setShowResults(false);
+    bannerRoundRef.current = 0;
     setPhase("playing");
   };
 
@@ -196,7 +224,7 @@ export default function CardsCalculator() {
     setCustomRoundsInput("");
   };
 
-  // Add entry
+  // ===== Entries =====
   const addEntry = (kind: EntryKind, rawValue?: string) => {
     if (!selected) return;
     let value = 0;
@@ -209,15 +237,12 @@ export default function CardsCalculator() {
         return;
       }
       value = v;
-    } else if (kind === "X") {
-      value = X_VALUE;
-    } else {
-      value = XX_VALUE;
-    }
+    } else if (kind === "X") value = X_VALUE;
+    else value = XX_VALUE;
+
     const entry: Entry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      kind,
-      value,
+      kind, value,
     };
     if (selected.type === "team") {
       setTeams((prev) =>
@@ -258,10 +283,8 @@ export default function CardsCalculator() {
 
   const onTapSlot = (slotIndex: number) => {
     if (mode === "pairs") {
-      const teamIdx = teamIndexForSlot(slotIndex);
-      setSelected({ type: "team", index: teamIdx });
+      setSelected({ type: "team", index: teamIndexForSlot(slotIndex) });
     } else {
-      // slotIndex maps to player index in slotPositions order
       const pIdx = slotPositions.indexOf(slotIndex);
       if (pIdx === -1) return;
       setSelected({ type: "player", index: pIdx });
@@ -279,6 +302,7 @@ export default function CardsCalculator() {
       setShowResults(false);
       setPlayers([]);
       setTeams([]);
+      bannerRoundRef.current = 0;
     };
     if (Platform.OS === "web") {
       if (window.confirm("الرجوع لشاشة الإعداد سيُلغي اللعبة الحالية. متابعة؟"))
@@ -293,6 +317,7 @@ export default function CardsCalculator() {
 
   const newGameSameSetup = () => {
     setShowResults(false);
+    bannerRoundRef.current = 0;
     if (mode === "pairs") {
       setTeams((prev) => prev.map((t) => ({ ...t, entries: [] })));
     } else {
@@ -300,9 +325,7 @@ export default function CardsCalculator() {
     }
   };
 
-  if (!hydrated) {
-    return <View style={styles.root} />;
-  }
+  if (!hydrated) return <View style={styles.root} />;
 
   // ============ SETUP PHASE ============
   if (phase === "setup") {
@@ -313,7 +336,6 @@ export default function CardsCalculator() {
             style={{ flex: 1 }}
             behavior={Platform.OS === "ios" ? "padding" : undefined}
           >
-            {/* Top Bar */}
             <View style={styles.topBar}>
               <TouchableOpacity
                 testID="back-button"
@@ -331,72 +353,30 @@ export default function CardsCalculator() {
               contentContainerStyle={styles.setupScroll}
               showsVerticalScrollIndicator={false}
             >
-              {/* Mode selection */}
               <Text style={styles.setupLabel}>تريد اللعب زوجي أو فردي؟</Text>
               <View style={styles.modeRow}>
                 <TouchableOpacity
                   testID="mode-individual"
                   onPress={() => setMode("individual")}
-                  style={[
-                    styles.modeCard,
-                    mode === "individual" && styles.modeCardActive,
-                  ]}
+                  style={[styles.modeCard, mode === "individual" && styles.modeCardActive]}
                 >
-                  <Ionicons
-                    name="person"
-                    size={28}
-                    color={mode === "individual" ? "#0B1020" : "#fff"}
-                  />
-                  <Text
-                    style={[
-                      styles.modeCardTitle,
-                      mode === "individual" && { color: "#0B1020" },
-                    ]}
-                  >
-                    فردي
-                  </Text>
-                  <Text
-                    style={[
-                      styles.modeCardDesc,
-                      mode === "individual" && { color: "#0B1020" },
-                    ]}
-                  >
-                    2 / 3 / 4 لاعبين
-                  </Text>
+                  <Ionicons name="person" size={28}
+                    color={mode === "individual" ? "#0B1020" : "#fff"} />
+                  <Text style={[styles.modeCardTitle, mode === "individual" && { color: "#0B1020" }]}>فردي</Text>
+                  <Text style={[styles.modeCardDesc, mode === "individual" && { color: "#0B1020" }]}>2 / 3 / 4 لاعبين</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   testID="mode-pairs"
                   onPress={() => setMode("pairs")}
-                  style={[
-                    styles.modeCard,
-                    mode === "pairs" && styles.modeCardActive,
-                  ]}
+                  style={[styles.modeCard, mode === "pairs" && styles.modeCardActive]}
                 >
-                  <Ionicons
-                    name="people"
-                    size={28}
-                    color={mode === "pairs" ? "#0B1020" : "#fff"}
-                  />
-                  <Text
-                    style={[
-                      styles.modeCardTitle,
-                      mode === "pairs" && { color: "#0B1020" },
-                    ]}
-                  >
-                    زوجي
-                  </Text>
-                  <Text
-                    style={[
-                      styles.modeCardDesc,
-                      mode === "pairs" && { color: "#0B1020" },
-                    ]}
-                  >
-                    4 لاعبين / فريقين
-                  </Text>
+                  <Ionicons name="people" size={28}
+                    color={mode === "pairs" ? "#0B1020" : "#fff"} />
+                  <Text style={[styles.modeCardTitle, mode === "pairs" && { color: "#0B1020" }]}>زوجي</Text>
+                  <Text style={[styles.modeCardDesc, mode === "pairs" && { color: "#0B1020" }]}>4 لاعبين / فريقين</Text>
                 </TouchableOpacity>
               </View>
 
-              {/* Player count (individual only) */}
               {mode === "individual" && (
                 <>
                   <Text style={styles.setupLabel}>عدد اللاعبين</Text>
@@ -406,26 +386,15 @@ export default function CardsCalculator() {
                         key={n}
                         testID={`players-${n}`}
                         onPress={() => setNumPlayers(n as 2 | 3 | 4)}
-                        style={[
-                          styles.chip,
-                          numPlayers === n && styles.chipActive,
-                        ]}
+                        style={[styles.chip, numPlayers === n && styles.chipActive]}
                       >
-                        <Text
-                          style={[
-                            styles.chipText,
-                            numPlayers === n && styles.chipTextActive,
-                          ]}
-                        >
-                          {n}
-                        </Text>
+                        <Text style={[styles.chipText, numPlayers === n && styles.chipTextActive]}>{n}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
                 </>
               )}
 
-              {/* Player names */}
               <Text style={styles.setupLabel}>أسماء اللاعبين</Text>
               <View style={styles.namesGrid}>
                 {Array.from({ length: mode === "pairs" ? 4 : numPlayers }).map(
@@ -433,24 +402,11 @@ export default function CardsCalculator() {
                     const teamA = mode === "pairs" && (i === 0 || i === 2);
                     const accent =
                       mode === "pairs"
-                        ? teamA
-                          ? TEAM_COLORS[0]
-                          : TEAM_COLORS[1]
+                        ? teamA ? TEAM_COLORS[0] : TEAM_COLORS[1]
                         : PLAYER_COLORS[i];
                     return (
-                      <View
-                        key={i}
-                        style={[
-                          styles.nameRow,
-                          { borderColor: accent + "55" },
-                        ]}
-                      >
-                        <View
-                          style={[
-                            styles.nameAvatar,
-                            { backgroundColor: accent },
-                          ]}
-                        >
+                      <View key={i} style={[styles.nameRow, { borderColor: accent + "55" }]}>
+                        <View style={[styles.nameAvatar, { backgroundColor: accent }]}>
                           <Text style={styles.nameAvatarText}>{i + 1}</Text>
                         </View>
                         <TextInput
@@ -463,17 +419,8 @@ export default function CardsCalculator() {
                           textAlign="right"
                         />
                         {mode === "pairs" && (
-                          <View
-                            style={[
-                              styles.teamBadge,
-                              { backgroundColor: accent + "22" },
-                            ]}
-                          >
-                            <Text
-                              style={[styles.teamBadgeText, { color: accent }]}
-                            >
-                              فريق {teamA ? "أ" : "ب"}
-                            </Text>
+                          <View style={[styles.teamBadge, { backgroundColor: accent + "22" }]}>
+                            <Text style={[styles.teamBadgeText, { color: accent }]}>فريق {teamA ? "أ" : "ب"}</Text>
                           </View>
                         )}
                       </View>
@@ -482,7 +429,6 @@ export default function CardsCalculator() {
                 )}
               </View>
 
-              {/* Rounds */}
               <Text style={styles.setupLabel}>عدد الجولات</Text>
               <View style={styles.chipRow}>
                 {ROUND_OPTIONS.map((n) => (
@@ -492,14 +438,7 @@ export default function CardsCalculator() {
                     onPress={() => setRounds(n)}
                     style={[styles.chip, rounds === n && styles.chipActive]}
                   >
-                    <Text
-                      style={[
-                        styles.chipText,
-                        rounds === n && styles.chipTextActive,
-                      ]}
-                    >
-                      {n}
-                    </Text>
+                    <Text style={[styles.chipText, rounds === n && styles.chipTextActive]}>{n}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -514,27 +453,16 @@ export default function CardsCalculator() {
                   keyboardType="number-pad"
                   textAlign="right"
                 />
-                <TouchableOpacity
-                  testID="apply-rounds"
-                  onPress={applyCustomRounds}
-                  style={styles.customBtn}
-                >
+                <TouchableOpacity testID="apply-rounds" onPress={applyCustomRounds} style={styles.customBtn}>
                   <Text style={styles.customBtnText}>تعيين</Text>
                 </TouchableOpacity>
               </View>
               <View style={styles.currentTargetPill}>
                 <Ionicons name="repeat" size={14} color="#FBBF24" />
-                <Text style={styles.currentTargetText}>
-                  الجولات الحالية: {rounds}
-                </Text>
+                <Text style={styles.currentTargetText}>الجولات الحالية: {rounds}</Text>
               </View>
 
-              {/* Start */}
-              <TouchableOpacity
-                testID="start-button"
-                onPress={startGame}
-                style={styles.startBtn}
-              >
+              <TouchableOpacity testID="start-button" onPress={startGame} style={styles.startBtn}>
                 <Ionicons name="play" size={20} color="#0B1020" />
                 <Text style={styles.startBtnText}>بدء اللعبة</Text>
               </TouchableOpacity>
@@ -546,7 +474,7 @@ export default function CardsCalculator() {
   }
 
   // ============ PLAYING PHASE ============
-  // Build slot data: each slot maps to either a player or team
+  // Build slot data
   const slotData = slotPositions.map((pos, idx) => {
     if (mode === "pairs") {
       const teamIdx = teamIndexForSlot(pos);
@@ -557,7 +485,8 @@ export default function CardsCalculator() {
         label: player?.name || `اللاعب ${pos + 1}`,
         teamLabel: `فريق ${teamIdx === 0 ? "أ" : "ب"}`,
         total: team ? totalFor(team) : 0,
-        entries: team?.entries || [],
+        entriesCount: team?.entries.length || 0,
+        lastEntry: team?.entries[team.entries.length - 1],
         color: TEAM_COLORS[teamIdx],
       };
     }
@@ -567,16 +496,20 @@ export default function CardsCalculator() {
       label: player?.name || `اللاعب ${idx + 1}`,
       teamLabel: null,
       total: player ? totalFor(player) : 0,
-      entries: player?.entries || [],
+      entriesCount: player?.entries.length || 0,
+      lastEntry: player?.entries[player.entries.length - 1],
       color: PLAYER_COLORS[idx % PLAYER_COLORS.length],
     };
   });
 
-  // Selected entity data for modal
+  const findSlotByPos = (p: number) => slotData.find((s) => s.slotPos === p);
+  const slotTop = findSlotByPos(0);
+  const slotRight = findSlotByPos(1);
+  const slotBottom = findSlotByPos(2);
+  const slotLeft = findSlotByPos(3);
+
   const selectedEntity = selected
-    ? selected.type === "team"
-      ? teams[selected.index]
-      : players[selected.index]
+    ? selected.type === "team" ? teams[selected.index] : players[selected.index]
     : null;
   const selectedColor = selected
     ? selected.type === "team"
@@ -584,18 +517,12 @@ export default function CardsCalculator() {
       : PLAYER_COLORS[selected.index % PLAYER_COLORS.length]
     : "#7C3AED";
 
-  // Sorted results
   const resultsList = (() => {
     const arr =
       mode === "pairs"
-        ? teams.map((t, i) => ({
-            name: t.name,
-            total: totalFor(t),
-            color: TEAM_COLORS[i],
-          }))
+        ? teams.map((t, i) => ({ name: t.name, total: totalFor(t), color: TEAM_COLORS[i] }))
         : players.map((p, i) => ({
-            name: p.name,
-            total: totalFor(p),
+            name: p.name, total: totalFor(p),
             color: PLAYER_COLORS[i % PLAYER_COLORS.length],
           }));
     return [...arr].sort((a, b) => a.total - b.total);
@@ -604,13 +531,8 @@ export default function CardsCalculator() {
   return (
     <View style={styles.root} testID="cards-game-screen">
       <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
-        {/* Top Bar */}
         <View style={styles.topBar}>
-          <TouchableOpacity
-            testID="back-to-setup"
-            onPress={exitToSetup}
-            style={styles.iconBtn}
-          >
+          <TouchableOpacity testID="back-to-setup" onPress={exitToSetup} style={styles.iconBtn}>
             <Ionicons name="arrow-forward" size={22} color="#fff" />
           </TouchableOpacity>
           <View style={{ alignItems: "center" }}>
@@ -620,823 +542,637 @@ export default function CardsCalculator() {
               {mode === "pairs" ? "  •  زوجي" : `  •  فردي`}
             </Text>
           </View>
-          <TouchableOpacity
-            testID="show-results"
-            onPress={() => setShowResults(true)}
-            style={styles.iconBtn}
-          >
+          <TouchableOpacity testID="show-results" onPress={() => setShowResults(true)} style={styles.iconBtn}>
             <Ionicons name="trophy" size={22} color="#FBBF24" />
           </TouchableOpacity>
         </View>
 
-        {/* Round progress bar */}
         <View style={styles.progressBarOuter}>
-          <View
-            style={[
-              styles.progressBarInner,
-              {
-                width: `${Math.min(100, (maxEntries / rounds) * 100)}%`,
-              },
-            ]}
-          />
+          <View style={[styles.progressBarInner, { width: `${Math.min(100, (maxEntries / rounds) * 100)}%` }]} />
         </View>
 
-        {/* Table area */}
+        {/* Round-complete banner */}
+        {bannerVisible && (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.banner,
+              {
+                opacity: bannerAnim,
+                transform: [
+                  {
+                    translateY: bannerAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [-40, 0],
+                    }),
+                  },
+                  {
+                    scale: bannerAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.85, 1],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Ionicons name="checkmark-circle" size={20} color="#0B1020" />
+            <Text style={styles.bannerText}>
+              الجولة {minEntries} مكتملة • انتقل للجولة {minEntries + 1}
+            </Text>
+            <Ionicons name="arrow-back" size={18} color="#0B1020" />
+          </Animated.View>
+        )}
+
+        {/* Table layout: top row, middle row (left + table + right), bottom row */}
         <View style={styles.tableArea}>
-          <View style={styles.table}>
-            <View style={styles.tableInner}>
-              <Ionicons name="diamond" size={32} color="rgba(255,255,255,0.15)" />
-              <Text style={styles.tableHint}>اضغط على لاعب لتسجيل النقاط</Text>
-            </View>
+          <View style={styles.rowTopBottom}>
+            {slotTop ? (
+              <PlayerSlot data={slotTop} testID={`slot-${slotPositions.indexOf(0)}`}
+                onPress={() => onTapSlot(0)} highlight={!allDone} />
+            ) : <View style={styles.slotPlaceholder} />}
           </View>
 
-          {/* Slot rendering: absolute positioning */}
-          {slotData.map((s, i) => (
-            <PlayerSlot
-              key={i}
-              slotPos={s.slotPos}
-              label={s.label}
-              teamLabel={s.teamLabel}
-              total={s.total}
-              entries={s.entries}
-              color={s.color}
-              testID={`slot-${i}`}
-              onPress={() => onTapSlot(s.slotPos)}
-            />
-          ))}
+          <View style={styles.rowMiddle}>
+            {slotLeft ? (
+              <PlayerSlot data={slotLeft} testID={`slot-${slotPositions.indexOf(3)}`}
+                onPress={() => onTapSlot(3)} highlight={!allDone} />
+            ) : <View style={styles.slotPlaceholder} />}
+
+            <View style={styles.tableWrap}>
+              <View style={styles.tableShadow} />
+              <View style={styles.table}>
+                <View style={styles.tableInner}>
+                  <Ionicons name="diamond" size={28} color="rgba(255,255,255,0.18)" />
+                  <Text style={styles.tableHint}>اضغط على لاعب{"\n"}لتسجيل النقاط</Text>
+                </View>
+              </View>
+            </View>
+
+            {slotRight ? (
+              <PlayerSlot data={slotRight} testID={`slot-${slotPositions.indexOf(1)}`}
+                onPress={() => onTapSlot(1)} highlight={!allDone} />
+            ) : <View style={styles.slotPlaceholder} />}
+          </View>
+
+          <View style={styles.rowTopBottom}>
+            {slotBottom ? (
+              <PlayerSlot data={slotBottom} testID={`slot-${slotPositions.indexOf(2)}`}
+                onPress={() => onTapSlot(2)} highlight={!allDone} />
+            ) : <View style={styles.slotPlaceholder} />}
+          </View>
         </View>
       </SafeAreaView>
 
       {/* Entry Modal */}
-      <Modal
-        visible={!!selected}
-        transparent
-        animationType="slide"
-        onRequestClose={closeModal}
-      >
-        <Pressable style={styles.modalOverlay} onPress={closeModal}>
-          <Pressable
-            style={[styles.entryCard, { borderColor: selectedColor + "55" }]}
-            onPress={(e) => e.stopPropagation()}
-            testID="entry-modal"
-          >
-            <View
-              style={[styles.entryHeader, { backgroundColor: selectedColor }]}
+      <Modal visible={!!selected} transparent animationType="fade" onRequestClose={closeModal}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <Pressable style={styles.modalOverlay} onPress={closeModal}>
+            <Pressable
+              style={[styles.entryCard, { borderColor: selectedColor + "55" }]}
+              onPress={(e) => e.stopPropagation && e.stopPropagation()}
+              testID="entry-modal"
             >
-              <Text style={styles.entryHeaderName}>
-                {selectedEntity?.name || ""}
-              </Text>
-              <Text style={styles.entryHeaderTotal}>
-                المجموع:{" "}
-                {selectedEntity ? totalFor(selectedEntity) : 0}
-              </Text>
-            </View>
-
-            <View style={styles.entryBody}>
-              <Text style={styles.entrySectionLabel}>إضافة نقاط</Text>
-              <View style={styles.entryInputRow}>
-                <TextInput
-                  testID="entry-number-input"
-                  style={[
-                    styles.entryNumberInput,
-                    { borderColor: selectedColor },
-                  ]}
-                  value={entryInput}
-                  onChangeText={setEntryInput}
-                  placeholder="رقم"
-                  placeholderTextColor="#64748B"
-                  keyboardType="number-pad"
-                  textAlign="center"
-                />
-                <TouchableOpacity
-                  testID="entry-add-number"
-                  onPress={() => addEntry("number", entryInput)}
-                  style={[
-                    styles.entryAddBtn,
-                    { backgroundColor: selectedColor },
-                  ]}
-                >
-                  <Ionicons name="add" size={20} color="#fff" />
-                </TouchableOpacity>
+              <View style={[styles.entryHeader, { backgroundColor: selectedColor }]}>
+                <Text style={styles.entryHeaderName}>{selectedEntity?.name || ""}</Text>
+                <Text style={styles.entryHeaderTotal}>
+                  المجموع: {selectedEntity ? totalFor(selectedEntity) : 0}
+                </Text>
               </View>
 
-              <View style={styles.xRow}>
-                <TouchableOpacity
-                  testID="entry-add-x"
-                  onPress={() => addEntry("X")}
-                  style={[styles.xBtn, styles.xBtnSingle]}
-                >
-                  <Text style={styles.xBtnLabel}>X</Text>
-                  <Text style={styles.xBtnSub}>−25</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  testID="entry-add-xx"
-                  onPress={() => addEntry("XX")}
-                  style={[styles.xBtn, styles.xBtnDouble]}
-                >
-                  <Text style={styles.xBtnLabel}>XX</Text>
-                  <Text style={styles.xBtnSub}>−50</Text>
-                </TouchableOpacity>
-              </View>
-
-              <Text style={styles.entrySectionLabel}>السجلّ</Text>
-              <ScrollView
-                style={styles.entryHistory}
-                contentContainerStyle={{ gap: 6 }}
-              >
-                {selectedEntity?.entries.length === 0 && (
-                  <Text style={styles.emptyText}>لا توجد إدخالات</Text>
-                )}
-                {selectedEntity?.entries.map((e, idx) => (
-                  <View
-                    key={e.id}
-                    style={styles.histItem}
-                    testID={`hist-item-${idx}`}
+              <View style={styles.entryBody}>
+                <Text style={styles.entrySectionLabel}>إضافة نقاط</Text>
+                <View style={styles.entryInputRow}>
+                  <TextInput
+                    testID="entry-number-input"
+                    style={[styles.entryNumberInput, { borderColor: selectedColor }]}
+                    value={entryInput}
+                    onChangeText={setEntryInput}
+                    placeholder="رقم"
+                    placeholderTextColor="#64748B"
+                    keyboardType="number-pad"
+                    textAlign="center"
+                    onSubmitEditing={() => addEntry("number", entryInput)}
+                    returnKeyType="done"
+                  />
+                  <TouchableOpacity
+                    testID="entry-add-number"
+                    onPress={() => addEntry("number", entryInput)}
+                    style={[styles.entryAddBtn, { backgroundColor: selectedColor }]}
                   >
-                    <TouchableOpacity
-                      testID={`hist-delete-${idx}`}
-                      onPress={() => deleteEntry(e.id)}
-                      style={styles.histDelete}
-                      hitSlop={8}
-                    >
-                      <Ionicons
-                        name="trash-outline"
-                        size={16}
-                        color="#F87171"
-                      />
-                    </TouchableOpacity>
-                    <Text
-                      style={[
-                        styles.histValue,
-                        e.kind !== "number" && { color: "#F87171" },
-                      ]}
-                    >
-                      {e.kind === "number"
-                        ? e.value
-                        : e.kind === "X"
-                        ? "X (−25)"
-                        : "XX (−50)"}
-                    </Text>
-                    <Text
-                      style={[styles.histIdx, { color: selectedColor }]}
-                    >
-                      جولة {idx + 1}
-                    </Text>
-                  </View>
-                ))}
-              </ScrollView>
+                    <Ionicons name="add" size={20} color="#fff" />
+                  </TouchableOpacity>
+                </View>
 
-              <TouchableOpacity
-                testID="entry-close"
-                onPress={closeModal}
-                style={styles.entryClose}
-              >
-                <Text style={styles.entryCloseText}>إغلاق</Text>
-              </TouchableOpacity>
-            </View>
+                <View style={styles.xRow}>
+                  <TouchableOpacity testID="entry-add-x" onPress={() => addEntry("X")}
+                    style={[styles.xBtn, styles.xBtnSingle]}>
+                    <Text style={styles.xBtnLabel}>X</Text>
+                    <Text style={styles.xBtnSub}>−25</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity testID="entry-add-xx" onPress={() => addEntry("XX")}
+                    style={[styles.xBtn, styles.xBtnDouble]}>
+                    <Text style={styles.xBtnLabel}>XX</Text>
+                    <Text style={styles.xBtnSub}>−50</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.entrySectionLabel}>السجلّ</Text>
+
+                {/* History list - properly scrollable with fixed maxHeight */}
+                <View style={styles.entryHistoryWrap}>
+                  <ScrollView
+                    style={{ flex: 1 }}
+                    contentContainerStyle={styles.entryHistoryContent}
+                    showsVerticalScrollIndicator={true}
+                    nestedScrollEnabled
+                  >
+                    {(!selectedEntity || selectedEntity.entries.length === 0) && (
+                      <Text style={styles.emptyText}>لا توجد إدخالات</Text>
+                    )}
+                    {selectedEntity?.entries.map((e, idx) => (
+                      <View key={e.id} style={styles.histItem} testID={`hist-item-${idx}`}>
+                        <TouchableOpacity
+                          testID={`hist-delete-${idx}`}
+                          onPress={() => deleteEntry(e.id)}
+                          style={styles.histDelete}
+                          hitSlop={8}
+                        >
+                          <Ionicons name="trash-outline" size={16} color="#F87171" />
+                        </TouchableOpacity>
+                        <Text style={[styles.histValue, e.kind !== "number" && { color: "#F87171" }]}>
+                          {e.kind === "number" ? e.value : e.kind === "X" ? "X (−25)" : "XX (−50)"}
+                        </Text>
+                        <Text style={[styles.histIdx, { color: selectedColor }]}>
+                          جولة {idx + 1}
+                        </Text>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
+
+                <TouchableOpacity testID="entry-close" onPress={closeModal} style={styles.entryClose}>
+                  <Text style={styles.entryCloseText}>إغلاق</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Results Modal */}
-      <Modal
-        visible={showResults}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowResults(false)}
-      >
+      <Modal visible={showResults} transparent animationType="fade" onRequestClose={() => setShowResults(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.resultsCard} testID="results-modal">
-            <View style={styles.trophyWrap}>
-              <Ionicons name="trophy" size={48} color="#FBBF24" />
-            </View>
-            <Text style={styles.resultsTitle}>النتيجة النهائية</Text>
-            <Text style={styles.resultsSub}>
-              الفائز هو من حصل على أقل نقاط
-            </Text>
-
-            <View style={styles.resultsList}>
-              {resultsList.map((r, idx) => {
-                const isWinner = idx === 0;
-                const isLoser = idx === resultsList.length - 1;
-                return (
-                  <View
-                    key={idx}
-                    style={[
-                      styles.resultRow,
-                      isWinner && styles.resultRowWinner,
-                      isLoser && styles.resultRowLoser,
-                    ]}
-                    testID={`result-row-${idx}`}
-                  >
-                    <View style={styles.rankWrap}>
-                      <Text style={styles.rank}>
-                        {isWinner ? "🏆" : isLoser ? "❌" : `#${idx + 1}`}
-                      </Text>
-                    </View>
-                    <Text style={styles.resultName}>{r.name}</Text>
-                    <Text
-                      style={[
-                        styles.resultTotal,
-                        { color: isWinner ? "#10B981" : "#fff" },
-                      ]}
-                    >
-                      {r.total}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
-
-            <View style={styles.resultActions}>
-              <TouchableOpacity
-                testID="results-close"
-                onPress={() => setShowResults(false)}
-                style={[styles.actionBtn, styles.actionBtnSecondary]}
-              >
-                <Text style={styles.actionBtnSecondaryText}>متابعة اللعب</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                testID="results-new-game"
-                onPress={newGameSameSetup}
-                style={[styles.actionBtn, styles.actionBtnPrimary]}
-              >
-                <Ionicons name="refresh" size={16} color="#0B1020" />
-                <Text style={styles.actionBtnPrimaryText}>جولة جديدة</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          <ResultsCard
+            resultsList={resultsList}
+            onClose={() => setShowResults(false)}
+            onNewGame={newGameSameSetup}
+          />
         </View>
       </Modal>
     </View>
   );
 }
 
-// ============== Player Slot Component ==============
+// ============== Player Slot ==============
 function PlayerSlot(props: {
-  slotPos: number;
-  label: string;
-  teamLabel: string | null;
-  total: number;
-  entries: Entry[];
-  color: string;
+  data: {
+    label: string;
+    teamLabel: string | null;
+    total: number;
+    entriesCount: number;
+    lastEntry: Entry | undefined;
+    color: string;
+  };
   onPress: () => void;
   testID: string;
+  highlight: boolean;
 }) {
-  const { slotPos, label, teamLabel, total, entries, color, onPress, testID } =
-    props;
+  const { data, onPress, testID, highlight } = props;
+  const { label, teamLabel, total, entriesCount, lastEntry, color } = data;
 
-  // Position the slot around the table
-  // 0=top, 1=right, 2=bottom, 3=left
-  let posStyle: any = {};
-  if (slotPos === 0) posStyle = { top: 0, alignSelf: "center" };
-  else if (slotPos === 2) posStyle = { bottom: 0, alignSelf: "center" };
-  else if (slotPos === 1) posStyle = { left: 0, top: "50%", marginTop: -50 };
-  else if (slotPos === 3) posStyle = { right: 0, top: "50%", marginTop: -50 };
+  // Pulse animation when total changes
+  const pulse = useRef(new Animated.Value(1)).current;
+  const prevTotal = useRef(total);
+  useEffect(() => {
+    if (prevTotal.current !== total) {
+      pulse.setValue(0.85);
+      Animated.spring(pulse, {
+        toValue: 1,
+        useNativeDriver: true,
+        friction: 4,
+        tension: 90,
+      }).start();
+      prevTotal.current = total;
+    }
+  }, [total, pulse]);
 
-  const lastEntry = entries[entries.length - 1];
+  // Subtle glow on highlight (active turn)
+  const glow = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!highlight) {
+      glow.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glow, { toValue: 1, duration: 1400, useNativeDriver: true, easing: Easing.inOut(Easing.quad) }),
+        Animated.timing(glow, { toValue: 0, duration: 1400, useNativeDriver: true, easing: Easing.inOut(Easing.quad) }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [highlight, glow]);
 
   return (
     <TouchableOpacity
       testID={testID}
       onPress={onPress}
       activeOpacity={0.85}
-      style={[styles.slot, posStyle, { borderColor: color }]}
+      style={styles.slotTouch}
     >
-      <View style={[styles.slotAvatar, { backgroundColor: color }]}>
-        <Ionicons name="person" size={18} color="#fff" />
-      </View>
-      <Text style={styles.slotName} numberOfLines={1}>
-        {label}
-      </Text>
-      {teamLabel && (
-        <Text style={[styles.slotTeam, { color }]}>{teamLabel}</Text>
-      )}
-      <Text style={[styles.slotTotal, { color }]} testID={`${testID}-total`}>
-        {total}
-      </Text>
-      {lastEntry && (
-        <View style={[styles.slotLast, { backgroundColor: color + "22" }]}>
-          <Text style={[styles.slotLastText, { color }]}>
-            آخر:{" "}
-            {lastEntry.kind === "number"
-              ? lastEntry.value
-              : lastEntry.kind}
-          </Text>
+      <Animated.View
+        style={[
+          styles.slot,
+          {
+            borderColor: color,
+            shadowColor: color,
+            shadowOpacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0.15, 0.6] }),
+            shadowRadius: glow.interpolate({ inputRange: [0, 1], outputRange: [4, 14] }),
+          },
+        ]}
+      >
+        <View style={[styles.slotAvatar, { backgroundColor: color }]}>
+          <Ionicons name="person" size={16} color="#fff" />
         </View>
-      )}
-      <Text style={styles.slotEntriesCount}>
-        {entries.length} إدخال
-      </Text>
+        <Text style={styles.slotName} numberOfLines={1}>{label}</Text>
+        {teamLabel && <Text style={[styles.slotTeam, { color }]}>{teamLabel}</Text>}
+        <Animated.Text
+          style={[styles.slotTotal, { color, transform: [{ scale: pulse }] }]}
+          testID={`${testID}-total`}
+        >
+          {total}
+        </Animated.Text>
+        {lastEntry && (
+          <View style={[styles.slotLast, { backgroundColor: color + "22" }]}>
+            <Text style={[styles.slotLastText, { color }]}>
+              آخر: {lastEntry.kind === "number" ? lastEntry.value : lastEntry.kind}
+            </Text>
+          </View>
+        )}
+        <Text style={styles.slotEntriesCount}>{entriesCount} إدخال</Text>
+      </Animated.View>
     </TouchableOpacity>
   );
 }
 
+// ============== Results Card with cascade animation ==============
+function ResultsCard(props: {
+  resultsList: { name: string; total: number; color: string }[];
+  onClose: () => void;
+  onNewGame: () => void;
+}) {
+  const { resultsList, onClose, onNewGame } = props;
+  const cardScale = useRef(new Animated.Value(0.7)).current;
+  const cardOpacity = useRef(new Animated.Value(0)).current;
+  const itemAnims = useRef(resultsList.map(() => new Animated.Value(0))).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(cardScale, { toValue: 1, useNativeDriver: true, friction: 6, tension: 80 }),
+      Animated.timing(cardOpacity, { toValue: 1, duration: 250, useNativeDriver: true }),
+    ]).start();
+    Animated.stagger(
+      120,
+      itemAnims.map((a) =>
+        Animated.spring(a, { toValue: 1, useNativeDriver: true, friction: 6, tension: 80 })
+      )
+    ).start();
+  }, [cardOpacity, cardScale, itemAnims]);
+
+  return (
+    <Animated.View
+      style={[
+        styles.resultsCard,
+        { opacity: cardOpacity, transform: [{ scale: cardScale }] },
+      ]}
+      testID="results-modal"
+    >
+      <View style={styles.trophyWrap}>
+        <Ionicons name="trophy" size={48} color="#FBBF24" />
+      </View>
+      <Text style={styles.resultsTitle}>النتيجة النهائية</Text>
+      <Text style={styles.resultsSub}>الفائز هو من حصل على أقل نقاط</Text>
+
+      <View style={styles.resultsList}>
+        {resultsList.map((r, idx) => {
+          const isWinner = idx === 0;
+          const isLoser = idx === resultsList.length - 1;
+          const a = itemAnims[idx];
+          return (
+            <Animated.View
+              key={idx}
+              style={[
+                styles.resultRow,
+                isWinner && styles.resultRowWinner,
+                isLoser && styles.resultRowLoser,
+                {
+                  opacity: a,
+                  transform: [
+                    { translateY: a.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) },
+                  ],
+                },
+              ]}
+              testID={`result-row-${idx}`}
+            >
+              <View style={styles.rankWrap}>
+                <Text style={styles.rank}>
+                  {isWinner ? "🏆" : isLoser ? "❌" : `#${idx + 1}`}
+                </Text>
+              </View>
+              <Text style={styles.resultName}>{r.name}</Text>
+              <Text style={[styles.resultTotal, { color: isWinner ? "#10B981" : "#fff" }]}>
+                {r.total}
+              </Text>
+            </Animated.View>
+          );
+        })}
+      </View>
+
+      <View style={styles.resultActions}>
+        <TouchableOpacity
+          testID="results-close"
+          onPress={onClose}
+          style={[styles.actionBtn, styles.actionBtnSecondary]}
+        >
+          <Text style={styles.actionBtnSecondaryText}>متابعة اللعب</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          testID="results-new-game"
+          onPress={onNewGame}
+          style={[styles.actionBtn, styles.actionBtnPrimary]}
+        >
+          <Ionicons name="refresh" size={16} color="#0B1020" />
+          <Text style={styles.actionBtnPrimaryText}>جولة جديدة</Text>
+        </TouchableOpacity>
+      </View>
+    </Animated.View>
+  );
+}
+
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: "#0B1020",
-  },
+  root: { flex: 1, backgroundColor: "#0B1020" },
   topBar: {
+    flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 14, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  iconBtn: {
+    width: 42, height: 42, borderRadius: 14, backgroundColor: "#151B30",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.06)",
+  },
+  topTitle: { color: "#fff", fontSize: 17, fontWeight: "800" },
+  topSubtitle: { color: "#94A3B8", fontSize: 11, marginTop: 2, fontWeight: "700" },
+  // Setup
+  setupScroll: { padding: 16, paddingBottom: 40 },
+  setupLabel: {
+    color: "#94A3B8", fontSize: 13, fontWeight: "800",
+    marginTop: 18, marginBottom: 10, textAlign: "right",
+  },
+  modeRow: { flexDirection: "row-reverse", gap: 10 },
+  modeCard: {
+    flex: 1, backgroundColor: "#151B30", borderRadius: 18, padding: 16,
+    alignItems: "center", borderWidth: 2, borderColor: "rgba(255,255,255,0.06)", gap: 6,
+  },
+  modeCardActive: { backgroundColor: "#FBBF24", borderColor: "#FBBF24" },
+  modeCardTitle: { color: "#fff", fontSize: 16, fontWeight: "900" },
+  modeCardDesc: { color: "#94A3B8", fontSize: 11, fontWeight: "600" },
+  chipRow: { flexDirection: "row-reverse", gap: 8 },
+  chip: {
+    flex: 1, paddingVertical: 12, borderRadius: 12, backgroundColor: "#151B30",
+    alignItems: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)",
+  },
+  chipActive: { backgroundColor: "#FBBF24", borderColor: "#FBBF24" },
+  chipText: { color: "#94A3B8", fontSize: 16, fontWeight: "800" },
+  chipTextActive: { color: "#0B1020" },
+  namesGrid: { gap: 8 },
+  nameRow: {
+    flexDirection: "row-reverse", alignItems: "center",
+    backgroundColor: "#151B30", borderRadius: 14,
+    paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1.5, gap: 8,
+  },
+  nameAvatar: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  nameAvatarText: { color: "#fff", fontWeight: "900", fontSize: 13 },
+  nameInput: { flex: 1, color: "#fff", fontSize: 14, fontWeight: "700", paddingVertical: 10 },
+  teamBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 100 },
+  teamBadgeText: { fontSize: 11, fontWeight: "800" },
+  customRow: { flexDirection: "row-reverse", gap: 8, marginTop: 10 },
+  customInput: {
+    flex: 1, backgroundColor: "#151B30", borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 10, color: "#fff", fontSize: 14,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.06)",
+  },
+  customBtn: {
+    backgroundColor: "#1E293B", paddingHorizontal: 18, paddingVertical: 10,
+    borderRadius: 12, justifyContent: "center",
+  },
+  customBtnText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+  currentTargetPill: {
+    flexDirection: "row-reverse", alignSelf: "flex-end", alignItems: "center", gap: 6,
+    backgroundColor: "rgba(251, 191, 36, 0.12)",
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 100, marginTop: 10,
+  },
+  currentTargetText: { color: "#FBBF24", fontSize: 12, fontWeight: "700" },
+  startBtn: {
+    flexDirection: "row-reverse", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: "#FBBF24", paddingVertical: 16, borderRadius: 18, marginTop: 28,
+  },
+  startBtnText: { color: "#0B1020", fontWeight: "900", fontSize: 16 },
+  // Playing
+  progressBarOuter: {
+    height: 4, backgroundColor: "rgba(255,255,255,0.05)",
+    marginHorizontal: 14, borderRadius: 2, overflow: "hidden", marginTop: 4,
+  },
+  progressBarInner: { height: "100%", backgroundColor: "#FBBF24", borderRadius: 2 },
+  banner: {
+    position: "absolute", top: 70, alignSelf: "center", zIndex: 10,
+    flexDirection: "row-reverse", alignItems: "center", gap: 8,
+    backgroundColor: "#FBBF24",
+    paddingHorizontal: 16, paddingVertical: 10, borderRadius: 100,
+    shadowColor: "#FBBF24", shadowOpacity: 0.5, shadowRadius: 12,
+    elevation: 8,
+  },
+  bannerText: { color: "#0B1020", fontWeight: "900", fontSize: 13 },
+  // New flex-based table layout (fixes inconsistent player distances)
+  tableArea: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    justifyContent: "space-between",
+  },
+  rowTopBottom: {
+    height: 110,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rowMiddle: {
+    flex: 1,
     flexDirection: "row-reverse",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
-  },
-  iconBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: "#151B30",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
-  },
-  topTitle: {
-    color: "#fff",
-    fontSize: 17,
-    fontWeight: "800",
-  },
-  topSubtitle: {
-    color: "#94A3B8",
-    fontSize: 11,
-    marginTop: 2,
-    fontWeight: "700",
-  },
-  // Setup
-  setupScroll: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-  setupLabel: {
-    color: "#94A3B8",
-    fontSize: 13,
-    fontWeight: "800",
-    marginTop: 18,
-    marginBottom: 10,
-    textAlign: "right",
-  },
-  modeRow: {
-    flexDirection: "row-reverse",
-    gap: 10,
-  },
-  modeCard: {
-    flex: 1,
-    backgroundColor: "#151B30",
-    borderRadius: 18,
-    padding: 16,
-    alignItems: "center",
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.06)",
     gap: 6,
   },
-  modeCardActive: {
-    backgroundColor: "#FBBF24",
-    borderColor: "#FBBF24",
-  },
-  modeCardTitle: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "900",
-  },
-  modeCardDesc: {
-    color: "#94A3B8",
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  chipRow: {
-    flexDirection: "row-reverse",
-    gap: 8,
-  },
-  chip: {
+  slotPlaceholder: { width: 110, height: 100 },
+  tableWrap: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: "#151B30",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
-  },
-  chipActive: {
-    backgroundColor: "#FBBF24",
-    borderColor: "#FBBF24",
-  },
-  chipText: {
-    color: "#94A3B8",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  chipTextActive: {
-    color: "#0B1020",
-  },
-  namesGrid: {
-    gap: 8,
-  },
-  nameRow: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    backgroundColor: "#151B30",
-    borderRadius: 14,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderWidth: 1.5,
-    gap: 8,
-  },
-  nameAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
   },
-  nameAvatarText: {
-    color: "#fff",
-    fontWeight: "900",
-    fontSize: 13,
-  },
-  nameInput: {
-    flex: 1,
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "700",
-    paddingVertical: 10,
-  },
-  teamBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 100,
-  },
-  teamBadgeText: {
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  customRow: {
-    flexDirection: "row-reverse",
-    gap: 8,
-    marginTop: 10,
-  },
-  customInput: {
-    flex: 1,
-    backgroundColor: "#151B30",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: "#fff",
-    fontSize: 14,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
-  },
-  customBtn: {
-    backgroundColor: "#1E293B",
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 12,
-    justifyContent: "center",
-  },
-  customBtnText: {
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: 13,
-  },
-  currentTargetPill: {
-    flexDirection: "row-reverse",
-    alignSelf: "flex-end",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "rgba(251, 191, 36, 0.12)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 100,
-    marginTop: 10,
-  },
-  currentTargetText: {
-    color: "#FBBF24",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  startBtn: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: "#FBBF24",
-    paddingVertical: 16,
-    borderRadius: 18,
-    marginTop: 28,
-  },
-  startBtnText: {
-    color: "#0B1020",
-    fontWeight: "900",
-    fontSize: 16,
-  },
-  // Playing
-  progressBarOuter: {
-    height: 4,
-    backgroundColor: "rgba(255,255,255,0.05)",
-    marginHorizontal: 14,
-    borderRadius: 2,
-    overflow: "hidden",
-  },
-  progressBarInner: {
-    height: "100%",
-    backgroundColor: "#FBBF24",
-    borderRadius: 2,
-  },
-  tableArea: {
-    flex: 1,
-    margin: 16,
-    position: "relative",
+  tableShadow: {
+    position: "absolute",
+    width: 200, height: 200, borderRadius: 100,
+    backgroundColor: "#10B981", opacity: 0.15,
   },
   table: {
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    width: 220,
-    height: 220,
-    marginTop: -110,
-    marginLeft: -110,
-    borderRadius: 110,
-    backgroundColor: "#064E3B",
-    borderWidth: 6,
-    borderColor: "#065F46",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#10B981",
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 8,
+    width: 180, height: 180, borderRadius: 90,
+    backgroundColor: "#064E3B", borderWidth: 6, borderColor: "#065F46",
+    alignItems: "center", justifyContent: "center",
   },
-  tableInner: {
-    alignItems: "center",
-    gap: 8,
-  },
+  tableInner: { alignItems: "center", gap: 6 },
   tableHint: {
-    color: "rgba(255,255,255,0.4)",
-    fontSize: 11,
-    fontWeight: "700",
-    textAlign: "center",
-    paddingHorizontal: 12,
+    color: "rgba(255,255,255,0.5)", fontSize: 10, fontWeight: "700",
+    textAlign: "center", paddingHorizontal: 8,
   },
   // Slot
-  slot: {
-    position: "absolute",
+  slotTouch: {
     width: 110,
     height: 100,
-    backgroundColor: "#151B30",
-    borderRadius: 16,
-    borderWidth: 2,
-    padding: 6,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 1,
+  },
+  slot: {
+    width: 110, height: 100, backgroundColor: "#151B30",
+    borderRadius: 16, borderWidth: 2, padding: 6,
+    alignItems: "center", justifyContent: "center", gap: 1,
+    elevation: 4,
   },
   slotAvatar: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 2,
+    width: 24, height: 24, borderRadius: 12,
+    alignItems: "center", justifyContent: "center", marginBottom: 1,
   },
-  slotName: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "800",
-    maxWidth: "100%",
-  },
-  slotTeam: {
-    fontSize: 10,
-    fontWeight: "800",
-    marginTop: -1,
-  },
-  slotTotal: {
-    fontSize: 22,
-    fontWeight: "900",
-  },
+  slotName: { color: "#fff", fontSize: 11, fontWeight: "800", maxWidth: "100%" },
+  slotTeam: { fontSize: 9, fontWeight: "800", marginTop: -1 },
+  slotTotal: { fontSize: 22, fontWeight: "900" },
   slotLast: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 100,
-    marginTop: 1,
+    paddingHorizontal: 6, paddingVertical: 1, borderRadius: 100, marginTop: 1,
   },
-  slotLastText: {
-    fontSize: 9,
-    fontWeight: "800",
-  },
-  slotEntriesCount: {
-    color: "#64748B",
-    fontSize: 9,
-    fontWeight: "700",
-    marginTop: 1,
-  },
-  // Modal: entry
+  slotLastText: { fontSize: 9, fontWeight: "800" },
+  slotEntriesCount: { color: "#64748B", fontSize: 9, fontWeight: "700" },
+  // Modal
   modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.85)",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 20,
+    flex: 1, backgroundColor: "rgba(0,0,0,0.85)",
+    alignItems: "center", justifyContent: "center", padding: 16,
   },
   entryCard: {
-    width: "100%",
-    maxWidth: 420,
-    backgroundColor: "#151B30",
-    borderRadius: 22,
-    overflow: "hidden",
-    borderWidth: 1.5,
-    maxHeight: "85%",
+    width: "100%", maxWidth: 420,
+    backgroundColor: "#151B30", borderRadius: 22,
+    overflow: "hidden", borderWidth: 1.5, maxHeight: "92%",
+    flexDirection: "column",
   },
-  entryHeader: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    alignItems: "center",
-  },
-  entryHeaderName: {
-    color: "#fff",
-    fontWeight: "900",
-    fontSize: 18,
-  },
+  entryHeader: { paddingVertical: 14, paddingHorizontal: 16, alignItems: "center" },
+  entryHeaderName: { color: "#fff", fontWeight: "900", fontSize: 18 },
   entryHeaderTotal: {
-    color: "rgba(255,255,255,0.85)",
-    fontSize: 13,
-    fontWeight: "700",
-    marginTop: 2,
+    color: "rgba(255,255,255,0.85)", fontSize: 13, fontWeight: "700", marginTop: 2,
   },
   entryBody: {
-    padding: 14,
-    gap: 8,
+    padding: 14, gap: 8, flexShrink: 1, flexGrow: 0,
   },
   entrySectionLabel: {
-    color: "#94A3B8",
-    fontSize: 12,
-    fontWeight: "800",
-    textAlign: "right",
-    marginTop: 6,
+    color: "#94A3B8", fontSize: 12, fontWeight: "800", textAlign: "right", marginTop: 4,
   },
-  entryInputRow: {
-    flexDirection: "row-reverse",
-    gap: 8,
-  },
+  entryInputRow: { flexDirection: "row-reverse", gap: 8 },
   entryNumberInput: {
-    flex: 1,
-    backgroundColor: "#0B1020",
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "800",
-    paddingVertical: 11,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    borderWidth: 1.5,
+    flex: 1, backgroundColor: "#0B1020", color: "#fff",
+    fontSize: 16, fontWeight: "800",
+    paddingVertical: 11, paddingHorizontal: 12,
+    borderRadius: 12, borderWidth: 1.5,
   },
   entryAddBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
+    width: 48, height: 48, borderRadius: 12,
+    alignItems: "center", justifyContent: "center",
   },
-  xRow: {
-    flexDirection: "row-reverse",
-    gap: 8,
-  },
+  xRow: { flexDirection: "row-reverse", gap: 8 },
   xBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 2,
+    flex: 1, paddingVertical: 12, borderRadius: 12,
+    alignItems: "center", justifyContent: "center", gap: 2,
   },
   xBtnSingle: {
     backgroundColor: "rgba(248, 113, 113, 0.18)",
-    borderWidth: 1.5,
-    borderColor: "#F87171",
+    borderWidth: 1.5, borderColor: "#F87171",
   },
   xBtnDouble: {
     backgroundColor: "rgba(220, 38, 38, 0.25)",
-    borderWidth: 1.5,
-    borderColor: "#DC2626",
+    borderWidth: 1.5, borderColor: "#DC2626",
   },
-  xBtnLabel: {
-    color: "#FCA5A5",
-    fontWeight: "900",
-    fontSize: 22,
-    letterSpacing: 1,
-  },
-  xBtnSub: {
-    color: "#FCA5A5",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  entryHistory: {
-    maxHeight: 200,
+  xBtnLabel: { color: "#FCA5A5", fontWeight: "900", fontSize: 22, letterSpacing: 1 },
+  xBtnSub: { color: "#FCA5A5", fontSize: 11, fontWeight: "700" },
+  // FIXED scroll: explicit height, ScrollView fills it
+  entryHistoryWrap: {
+    height: 200,
     backgroundColor: "#0B1020",
     borderRadius: 12,
-    padding: 8,
-    minHeight: 80,
+    padding: 6,
+  },
+  entryHistoryContent: {
+    gap: 6,
+    paddingBottom: 4,
   },
   emptyText: {
-    color: "#475569",
-    fontSize: 12,
-    textAlign: "center",
-    paddingVertical: 16,
-    fontStyle: "italic",
+    color: "#475569", fontSize: 12, textAlign: "center",
+    paddingVertical: 16, fontStyle: "italic",
   },
   histItem: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
+    flexDirection: "row-reverse", alignItems: "center",
     backgroundColor: "#151B30",
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    gap: 8,
+    paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10, gap: 8,
   },
-  histIdx: {
-    fontSize: 11,
-    fontWeight: "800",
-    width: 56,
-    textAlign: "right",
-  },
-  histValue: {
-    flex: 1,
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "800",
-    textAlign: "center",
-  },
+  histIdx: { fontSize: 11, fontWeight: "800", width: 56, textAlign: "right" },
+  histValue: { flex: 1, color: "#fff", fontSize: 15, fontWeight: "800", textAlign: "center" },
   histDelete: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
+    width: 28, height: 28, borderRadius: 8,
     backgroundColor: "rgba(248, 113, 113, 0.12)",
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: "center", justifyContent: "center",
   },
   entryClose: {
-    backgroundColor: "#1E293B",
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    marginTop: 6,
+    backgroundColor: "#1E293B", paddingVertical: 12, borderRadius: 12,
+    alignItems: "center", marginTop: 4,
   },
-  entryCloseText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  // Results modal
+  entryCloseText: { color: "#fff", fontSize: 14, fontWeight: "800" },
+  // Results
   resultsCard: {
-    width: "100%",
-    maxWidth: 420,
-    backgroundColor: "#151B30",
-    borderRadius: 24,
-    padding: 20,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "rgba(251, 191, 36, 0.3)",
+    width: "100%", maxWidth: 420, backgroundColor: "#151B30",
+    borderRadius: 24, padding: 20, alignItems: "center",
+    borderWidth: 1, borderColor: "rgba(251, 191, 36, 0.3)",
   },
   trophyWrap: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 80, height: 80, borderRadius: 40,
     backgroundColor: "rgba(251, 191, 36, 0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 10,
-    borderWidth: 2,
-    borderColor: "rgba(251, 191, 36, 0.3)",
+    alignItems: "center", justifyContent: "center",
+    marginBottom: 10, borderWidth: 2, borderColor: "rgba(251, 191, 36, 0.3)",
   },
-  resultsTitle: {
-    color: "#fff",
-    fontSize: 22,
-    fontWeight: "900",
-  },
+  resultsTitle: { color: "#fff", fontSize: 22, fontWeight: "900" },
   resultsSub: {
-    color: "#94A3B8",
-    fontSize: 12,
-    fontWeight: "700",
-    marginTop: 4,
-    marginBottom: 16,
+    color: "#94A3B8", fontSize: 12, fontWeight: "700",
+    marginTop: 4, marginBottom: 16,
   },
-  resultsList: {
-    width: "100%",
-    gap: 8,
-    marginBottom: 16,
-  },
+  resultsList: { width: "100%", gap: 8, marginBottom: 16 },
   resultRow: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
+    flexDirection: "row-reverse", alignItems: "center",
     backgroundColor: "#0B1020",
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: "rgba(255,255,255,0.05)",
-    gap: 10,
+    paddingVertical: 12, paddingHorizontal: 14, borderRadius: 14,
+    borderWidth: 1.5, borderColor: "rgba(255,255,255,0.05)", gap: 10,
   },
   resultRowWinner: {
     backgroundColor: "rgba(16, 185, 129, 0.12)",
@@ -1446,54 +1182,18 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(248, 113, 113, 0.08)",
     borderColor: "rgba(248, 113, 113, 0.3)",
   },
-  rankWrap: {
-    width: 36,
-    alignItems: "center",
-  },
-  rank: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#fff",
-  },
-  resultName: {
-    flex: 1,
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "800",
-    textAlign: "right",
-  },
-  resultTotal: {
-    fontSize: 22,
-    fontWeight: "900",
-  },
-  resultActions: {
-    flexDirection: "row-reverse",
-    gap: 8,
-    width: "100%",
-  },
+  rankWrap: { width: 36, alignItems: "center" },
+  rank: { fontSize: 18, fontWeight: "900", color: "#fff" },
+  resultName: { flex: 1, color: "#fff", fontSize: 15, fontWeight: "800", textAlign: "right" },
+  resultTotal: { fontSize: 22, fontWeight: "900" },
+  resultActions: { flexDirection: "row-reverse", gap: 8, width: "100%" },
   actionBtn: {
-    flex: 1,
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 100,
+    flex: 1, flexDirection: "row-reverse",
+    alignItems: "center", justifyContent: "center", gap: 6,
+    paddingVertical: 12, borderRadius: 100,
   },
-  actionBtnPrimary: {
-    backgroundColor: "#FBBF24",
-  },
-  actionBtnPrimaryText: {
-    color: "#0B1020",
-    fontWeight: "900",
-    fontSize: 14,
-  },
-  actionBtnSecondary: {
-    backgroundColor: "#1E293B",
-  },
-  actionBtnSecondaryText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 14,
-  },
+  actionBtnPrimary: { backgroundColor: "#FBBF24" },
+  actionBtnPrimaryText: { color: "#0B1020", fontWeight: "900", fontSize: 14 },
+  actionBtnSecondary: { backgroundColor: "#1E293B" },
+  actionBtnSecondaryText: { color: "#fff", fontWeight: "800", fontSize: 14 },
 });
