@@ -32,6 +32,15 @@ const GAMES: Game[] = [
     available: true,
   },
   {
+    id: "cards",
+    name: "حاسبة ورق اللعب",
+    description: "فردي أو زوجي • نظام X و XX • طاولة دائرية",
+    icon: "albums",
+    colors: ["#10B981", "#0EA5E9"],
+    route: "/games/cards",
+    available: true,
+  },
+  {
     id: "soon-1",
     name: "قريباً",
     description: "ألعاب جديدة في الطريق",
@@ -67,16 +76,16 @@ export default function Home() {
           {/* Stats Row */}
           <View style={styles.statsRow}>
             <View style={styles.statCard}>
-              <Text style={styles.statValue}>1</Text>
-              <Text style={styles.statLabel}>لعبة متاحة</Text>
+              <Text style={styles.statValue}>2</Text>
+              <Text style={styles.statLabel}>ألعاب متاحة</Text>
             </View>
             <View style={styles.statCard}>
               <Text style={styles.statValue}>∞</Text>
               <Text style={styles.statLabel}>متعة بلا حدود</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={styles.statValue}>2</Text>
-              <Text style={styles.statLabel}>لاعبين</Text>
+              <Text style={styles.statValue}>4</Text>
+              <Text style={styles.statLabel}>لاعبين كحد أقصى</Text>
             </View>
           </View>
 

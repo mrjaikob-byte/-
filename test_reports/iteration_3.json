@@ -1,0 +1,33 @@
+{
+  "summary": "Frontend-only testing for the new Cards Calculator (حاسبة ورق اللعب) game and regressions on the home screen + Domino game. All 34 test assertions across 2 Playwright runs PASSED. Setup phase, playing phase, entry modal (number/X/XX), per-slot totals, history with delete, pairs-mode team scoring (slots 0&2 = team A, 1&3 = team B), manual & auto results modal (sorted ascending, 🏆 winner / ❌ loser), 'جولة جديدة', 'متابعة اللعب', back-to-setup confirmation, and AsyncStorage persistence through reload all work as specified. Domino regression also passes.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "cards-game-screen entry-modal", "issues": ["Modal max-height 85% is fine on most devices, but with React Native Web at 414x900 the modal sits low and the action buttons can extend close to the bottom edge. Functional, but on smaller heights (<700px) action buttons may need scrolling. Consider reducing entryHistory maxHeight (currently 200) or making the entryCard fully scrollable."]}
+    ],
+    "react_native_issues": [
+      {"component": "RN Web (info, not blocker)", "issue": "Console warnings: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' and 'props.pointerEvents is deprecated. Use style.pointerEvents'. These are RN Web deprecation warnings from underlying RN/Expo components, not from this code. Safe to ignore now."}
+    ]
+  },
+  "test_report_links": ["Browser automation runs (no separate file). All assertions ran inline."],
+  "action_items": [
+    "(Optional polish) entry-modal layout: consider making the modal body internally scrollable so the X/XX buttons and history are always reachable on short viewports.",
+    "(Optional) Suppress or migrate the RN Web shadow*/pointerEvents deprecation warnings if you want a cleaner console."
+  ],
+  "critical_code_review_comments": [
+    "cards.tsx is 1499 lines — getting close to the 700-line guideline ceiling. Consider extracting <PlayerSlot/>, <EntryModal/>, <ResultsModal/>, and <SetupForm/> into separate files for maintainability.",
+    "AsyncStorage persistence saves on every state change including 'phase' (setup/playing). After exitToSetup() the saved state is 'setup' with empty players/teams — correct. Verified via reload test.",
+    "In pairs mode the 'players' array is also created and stored even though scores live on 'teams'. This is fine and useful for slot labels, just slightly redundant.",
+    "Round counter formula: currentRound = min(rounds, minEntries+1). When all done, minEntries == rounds → currentRound == rounds. Works correctly, displayed as 'الجولة rounds / rounds' on completion.",
+    "All interactive elements have testID; all text wrapped in <Text>; styles use StyleSheet.create — code review clean."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (not requested)", "frontend": "100% (34/34 assertions)"},
+  "seed_data_creation": "None (frontend only, AsyncStorage cleared per test).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Cards Calculator at /games/cards is fully working. testIDs verified: game-card-cards, cards-screen, mode-individual, mode-pairs, players-2/3/4, rounds-6/8/10, custom-rounds-input, apply-rounds, setup-name-0..3, start-button, cards-game-screen, slot-0..3, slot-N-total, entry-modal, entry-number-input, entry-add-number, entry-add-x, entry-add-xx, hist-item-N, hist-delete-N, entry-close, show-results, results-modal, result-row-N, results-new-game, results-close, back-to-setup. In Playwright, use page.mouse.click(cx,cy) on bounding-box center for RN-Web TouchableOpacity rather than JS .click() — TouchableOpacity onPress reliably fires that way. Pairs scoring confirmed: slot 0&2 = team A, slot 1&3 = team B. AsyncStorage key 'cards_calc_state_v1' persists phase/mode/numPlayers/rounds/setupNames/players/teams.",
+  "rca_of_issue": "N/A — no functional issues found."
+}
