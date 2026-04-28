@@ -1,0 +1,72 @@
+{
+  "summary": "Tested mobile-first Expo/React Native domino calculator app. Home screen, navigation, target selector, custom target, name inputs, back button, and persistence-load all work. CRITICAL BLOCKER: adding a score (the core feature of the app) is completely broken — typing a number in p1-score-input/p2-score-input updates the React controlled-state correctly (verified value: '77' in React fiber), but tapping p1-add-button / p2-add-button does NOT add the score: total stays 0, no score item is rendered, and the input is not cleared. Direct invocation of the React onClick prop on the add-button also fails to produce any state change. Because scores cannot be added, the delete, reset, winner-modal, and new-round flows are also untestable end-to-end.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "domino.tsx PlayerColumn -> addScore handler",
+        "issue": "Tapping the '+' add button does NOT add the typed score to the list. p1-total / p2-total stay at 0, no [pX-score-item-N] element is rendered, and the score input is NOT cleared after press. Reproduced consistently with: (a) page.fill, (b) page.keyboard.type, (c) React's native-value-setter + input event, (d) mouse.down/up at button center, and (e) direct invocation of the React onClick prop on the add button. In each case the score input's React fiber confirms `value: '77'` (state IS updated by typing), so the bug lies in the addScore flow itself — addScore is either returning early or its setState calls are being dropped. Because addScore holds an early-return on `winnerName`, but winnerName is null on a freshly cleared session, it should not bail. Recommend adding console.log inside addScore to confirm whether it is actually entered and which branch returns. Also verify there is no shadowing/stale-closure issue with the parent's input1/input2 vs PlayerColumn's local `input` prop.",
+        "testID": "p1-add-button / p2-add-button",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "domino.tsx addRow layout",
+        "issue": "On a 414x900 viewport the addRow (score input + add button) is rendered slightly outside the player column's clip area, causing Playwright to report 'Element is outside of the viewport' for p2-add-button until forced. The score input also visually overflows to the left edge of the screen. Consider reducing TextInput min width / padding inside the two-column split so the +button stays fully inside the column on narrow widths.",
+        "testID": "p2-add-button",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "domino.tsx reset button (Alert.alert)",
+        "issue": "Could not verify the reset confirmation flow because the score-add bug blocks reaching a state with scores to reset. Alert.alert in RN-Web normally renders as a native window.confirm; ensure it is wired so the destructive action clears scores but keeps names + target.",
+        "testID": "reset-button",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Add score -> total updates -> winner modal -> new round",
+        "issue": "Entire scoring pipeline is blocked by the add-button bug. Winner-modal (testID='winner-modal') and new-round (testID='new-round-button') therefore could not be reached via UI.",
+        "affected_testIDs": ["p1-add-button", "p2-add-button", "p1-total", "p2-total", "p1-score-item-0", "p2-score-item-0", "p1-delete-0", "p2-delete-0", "winner-modal", "new-round-button"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "domino calculator",
+        "issues": [
+          "Score input + add button row overflows the player column on small viewports (≤414px wide). Tighten gap and TextInput padding.",
+          "Add button (44x44) meets minimum touch target — OK."
+        ]
+      }
+    ],
+    "react_native_issues": [
+      {
+        "component": "@react-native-async-storage/async-storage",
+        "issue": "Expo dependency check warns: installed @react-native-async-storage/async-storage@3.0.2 but expected 2.2.0 for the current Expo SDK. Although AsyncStorage.getItem on first load works (hydration completes), version mismatch can cause subtle issues. Recommend `yarn add @react-native-async-storage/async-storage@2.2.0` (or the version `npx expo install` resolves)."
+      },
+      {
+        "component": "props.pointerEvents deprecation warning (general)",
+        "issue": "Console warning: `props.pointerEvents is deprecated. Use style.pointerEvents`. Coming from a dependency, low priority."
+      }
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "FIX (CRITICAL): Debug why addScore() does not commit setScores1/setInput1 even though input state is '77'. Suggested debugging: add console.log at the very top of addScore, before each early-return, and after setScores1 to confirm execution path. Also try removing the persist useEffect temporarily to see whether something inside it (e.g., AsyncStorage.setItem failure with v3.0.2) is throwing and aborting the render.",
+    "FIX: Pin @react-native-async-storage/async-storage to the version expected by the installed Expo SDK (`npx expo install @react-native-async-storage/async-storage`).",
+    "FIX (UI): Make the score input + add button row fit inside the player column on ≤414px wide viewports.",
+    "After fixing the add-button bug, re-run the full E2E flow: add scores → delete one → trigger winner → new round → verify names+target persist.",
+    "Verify Alert.alert reset flow works on web (RN-Web maps it to window.confirm)."
+  ],
+  "critical_code_review_comments": [
+    "domino.tsx: addScore reads input1/input2 from the parent's closure; consider lifting `input` into PlayerColumn or pass an explicit `value` arg to addScore to eliminate any chance of stale closures.",
+    "domino.tsx winner useEffect: the chained if/else branches are partly redundant (lines 87-95). Simplify to a single comparison: if (total1 >= target || total2 >= target) pick the larger.",
+    "Files are within size guidance (<700 lines) — good."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only)", "frontend": "~50% (home, nav, target chips, custom target, names, back, persistence-load PASS; score-add, delete, reset, winner-modal, new-round BLOCKED)"},
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The score-adding bug is the single blocker. Public URL https://mobile-game-design-3.preview.emergentagent.com works; route /games/domino loads. Use viewport 414x900 or 375x667. Note: page.fill on RN-Web TextInput does not always update React state — prefer page.click + page.keyboard.type, or use Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set + dispatchEvent('input',{bubbles:true}). After main agent fixes addScore, re-run the full E2E from this report.",
+  "rca_of_issue": "Reproduction (deterministic): 1) Open /games/domino. 2) Clear localStorage and reload. 3) Click p1-score-input, type '77'. 4) Click p1-add-button. Expected: p1-total='77', p1-score-item-0 visible, input cleared. Actual: p1-total='0', no score item, input still '77'. React fiber on the input confirms props.value='77' (state is correct). React fiber on the add button confirms onClick is bound. Even calling that onClick directly via JS (`props.onClick({})`) produces no state change. Therefore the bug is inside addScore — most likely an early-return that should not be hit (the `raw === ''` or `isNaN` checks against a stale closure of input1) OR a thrown error inside the surrounding effect that prevents commit. Mitigation: instrument addScore with console.log and re-test."
+}
