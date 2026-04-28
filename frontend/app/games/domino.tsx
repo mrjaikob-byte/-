@@ -36,9 +36,6 @@ export default function DominoCalculator() {
   const [scores1, setScores1] = useState<ScoreEntry[]>([]);
   const [scores2, setScores2] = useState<ScoreEntry[]>([]);
 
-  const [input1, setInput1] = useState<string>("");
-  const [input2, setInput2] = useState<string>("");
-
   const [winnerName, setWinnerName] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
@@ -49,9 +46,9 @@ export default function DominoCalculator() {
         const raw = await AsyncStorage.getItem(STORAGE_KEY);
         if (raw) {
           const s = JSON.parse(raw);
-          if (s.target) setTarget(s.target);
-          if (s.name1) setName1(s.name1);
-          if (s.name2) setName2(s.name2);
+          if (typeof s.target === "number") setTarget(s.target);
+          if (typeof s.name1 === "string") setName1(s.name1);
+          if (typeof s.name2 === "string") setName2(s.name2);
           if (Array.isArray(s.scores1)) setScores1(s.scores1);
           if (Array.isArray(s.scores2)) setScores2(s.scores2);
         }
@@ -84,10 +81,12 @@ export default function DominoCalculator() {
   // Check winner
   useEffect(() => {
     if (winnerName !== null) return;
-    if (total1 >= target && total1 >= total2) {
-      setWinnerName(name1.trim() || "اللاعب 1");
-    } else if (total2 >= target && total2 > total1) {
-      setWinnerName(name2.trim() || "اللاعب 2");
+    if (total1 >= target && total2 >= target) {
+      setWinnerName(
+        total1 >= total2
+          ? name1.trim() || "اللاعب 1"
+          : name2.trim() || "اللاعب 2"
+      );
     } else if (total1 >= target) {
       setWinnerName(name1.trim() || "اللاعب 1");
     } else if (total2 >= target) {
@@ -95,14 +94,19 @@ export default function DominoCalculator() {
     }
   }, [total1, total2, target, name1, name2, winnerName]);
 
-  const addScore = (player: 1 | 2) => {
-    if (winnerName) return;
-    const raw = (player === 1 ? input1 : input2).trim();
-    if (raw === "") return;
-    const value = parseInt(raw, 10);
+  const handleAddScore = (player: 1 | 2, rawValue: string): boolean => {
+    if (winnerName) return false;
+    const trimmed = (rawValue || "").trim();
+    if (trimmed === "") return false;
+    const value = parseInt(trimmed, 10);
     if (isNaN(value)) {
-      Alert.alert("رقم غير صحيح", "الرجاء إدخال رقم صحيح فقط");
-      return;
+      if (Platform.OS === "web") {
+        // eslint-disable-next-line no-alert
+        window.alert("الرجاء إدخال رقم صحيح");
+      } else {
+        Alert.alert("رقم غير صحيح", "الرجاء إدخال رقم صحيح فقط");
+      }
+      return false;
     }
     const entry: ScoreEntry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -110,11 +114,10 @@ export default function DominoCalculator() {
     };
     if (player === 1) {
       setScores1((prev) => [...prev, entry]);
-      setInput1("");
     } else {
       setScores2((prev) => [...prev, entry]);
-      setInput2("");
     }
+    return true;
   };
 
   const deleteScore = (player: 1 | 2, id: string) => {
@@ -125,7 +128,19 @@ export default function DominoCalculator() {
     }
   };
 
-  const resetGame = () => {
+  const performReset = () => {
+    setScores1([]);
+    setScores2([]);
+    setWinnerName(null);
+  };
+
+  const onResetPress = () => {
+    if (Platform.OS === "web") {
+      // eslint-disable-next-line no-alert
+      const ok = window.confirm("هل تريد حذف جميع النقاط والبدء من جديد؟");
+      if (ok) performReset();
+      return;
+    }
     Alert.alert(
       "إعادة اللعبة",
       "هل أنت متأكد من حذف جميع النقاط والبدء من جديد؟",
@@ -134,13 +149,7 @@ export default function DominoCalculator() {
         {
           text: "نعم، إعادة",
           style: "destructive",
-          onPress: () => {
-            setScores1([]);
-            setScores2([]);
-            setInput1("");
-            setInput2("");
-            setWinnerName(null);
-          },
+          onPress: performReset,
         },
       ]
     );
@@ -149,15 +158,18 @@ export default function DominoCalculator() {
   const startNewRound = () => {
     setScores1([]);
     setScores2([]);
-    setInput1("");
-    setInput2("");
     setWinnerName(null);
   };
 
   const applyCustomTarget = () => {
-    const v = parseInt(customTargetInput.trim(), 10);
+    const v = parseInt((customTargetInput || "").trim(), 10);
     if (isNaN(v) || v <= 0) {
-      Alert.alert("هدف غير صحيح", "الرجاء إدخال رقم موجب");
+      if (Platform.OS === "web") {
+        // eslint-disable-next-line no-alert
+        window.alert("الرجاء إدخال رقم موجب");
+      } else {
+        Alert.alert("هدف غير صحيح", "الرجاء إدخال رقم موجب");
+      }
       return;
     }
     setTarget(v);
@@ -186,7 +198,7 @@ export default function DominoCalculator() {
             <Text style={styles.topTitle}>حاسبة الدومينو</Text>
             <TouchableOpacity
               testID="reset-button"
-              onPress={resetGame}
+              onPress={onResetPress}
               style={styles.iconBtn}
             >
               <Ionicons name="refresh" size={22} color="#fff" />
@@ -252,16 +264,13 @@ export default function DominoCalculator() {
 
             {/* Two players split layout */}
             <View style={styles.playersWrap}>
-              {/* Player 1 - Right */}
               <PlayerColumn
                 testIdPrefix="p1"
                 accent="#7C3AED"
                 accentSoft="rgba(124, 58, 237, 0.18)"
                 name={name1}
                 onChangeName={setName1}
-                input={input1}
-                onChangeInput={setInput1}
-                onAdd={() => addScore(1)}
+                onAdd={(val) => handleAddScore(1, val)}
                 scores={scores1}
                 onDelete={(id) => deleteScore(1, id)}
                 total={total1}
@@ -273,16 +282,13 @@ export default function DominoCalculator() {
 
               <View style={styles.divider} />
 
-              {/* Player 2 - Left */}
               <PlayerColumn
                 testIdPrefix="p2"
                 accent="#EC4899"
                 accentSoft="rgba(236, 72, 153, 0.18)"
                 name={name2}
                 onChangeName={setName2}
-                input={input2}
-                onChangeInput={setInput2}
-                onAdd={() => addScore(2)}
+                onAdd={(val) => handleAddScore(2, val)}
                 scores={scores2}
                 onDelete={(id) => deleteScore(2, id)}
                 total={total2}
@@ -308,7 +314,9 @@ export default function DominoCalculator() {
                 <Ionicons name="trophy" size={56} color="#FBBF24" />
               </View>
               <Text style={styles.modalTitle}>🎉 الفائز هو 🎉</Text>
-              <Text style={styles.modalWinner}>{winnerName}</Text>
+              <Text style={styles.modalWinner} testID="winner-name">
+                {winnerName}
+              </Text>
               <Text style={styles.modalSub}>
                 وصل إلى هدف {target} نقطة
               </Text>
@@ -339,16 +347,14 @@ export default function DominoCalculator() {
   );
 }
 
-// Reusable Player Column
+// PlayerColumn owns its own input state to avoid stale closure issues
 function PlayerColumn(props: {
   testIdPrefix: string;
   accent: string;
   accentSoft: string;
   name: string;
   onChangeName: (v: string) => void;
-  input: string;
-  onChangeInput: (v: string) => void;
-  onAdd: () => void;
+  onAdd: (value: string) => boolean;
   scores: ScoreEntry[];
   onDelete: (id: string) => void;
   total: number;
@@ -363,8 +369,6 @@ function PlayerColumn(props: {
     accentSoft,
     name,
     onChangeName,
-    input,
-    onChangeInput,
     onAdd,
     scores,
     onDelete,
@@ -374,6 +378,13 @@ function PlayerColumn(props: {
     disabled,
     placeholder,
   } = props;
+
+  const [input, setInput] = useState<string>("");
+
+  const handleAddPress = () => {
+    const success = onAdd(input);
+    if (success) setInput("");
+  };
 
   return (
     <View style={styles.playerCol} testID={`${testIdPrefix}-column`}>
@@ -398,7 +409,10 @@ function PlayerColumn(props: {
       {/* Total */}
       <View style={[styles.totalCard, { borderColor: accent }]}>
         <Text style={styles.totalLabel}>المجموع</Text>
-        <Text style={[styles.totalValue, { color: accent }]} testID={`${testIdPrefix}-total`}>
+        <Text
+          style={[styles.totalValue, { color: accent }]}
+          testID={`${testIdPrefix}-total`}
+        >
           {total}
         </Text>
         <View style={styles.progressTrack}>
@@ -414,38 +428,37 @@ function PlayerColumn(props: {
         </Text>
       </View>
 
-      {/* Add Score Row */}
-      <View style={styles.addRow}>
-        <TextInput
-          testID={`${testIdPrefix}-score-input`}
-          style={[styles.scoreInput, { borderColor: accent }]}
-          value={input}
-          onChangeText={onChangeInput}
-          placeholder="نقاط"
-          placeholderTextColor="#64748B"
-          keyboardType="number-pad"
-          textAlign="center"
-          editable={!disabled}
-          onSubmitEditing={onAdd}
-          returnKeyType="done"
-        />
-        <TouchableOpacity
-          testID={`${testIdPrefix}-add-button`}
-          onPress={onAdd}
-          disabled={disabled}
-          style={[
-            styles.addBtn,
-            { backgroundColor: accent, opacity: disabled ? 0.5 : 1 },
-          ]}
-        >
-          <Ionicons name="add" size={22} color="#fff" />
-        </TouchableOpacity>
-      </View>
+      {/* Add Score */}
+      <TextInput
+        testID={`${testIdPrefix}-score-input`}
+        style={[styles.scoreInput, { borderColor: accent }]}
+        value={input}
+        onChangeText={setInput}
+        placeholder="نقاط"
+        placeholderTextColor="#64748B"
+        keyboardType="number-pad"
+        textAlign="center"
+        editable={!disabled}
+        onSubmitEditing={handleAddPress}
+        returnKeyType="done"
+      />
+      <TouchableOpacity
+        testID={`${testIdPrefix}-add-button`}
+        onPress={handleAddPress}
+        disabled={disabled}
+        style={[
+          styles.addBtn,
+          { backgroundColor: accent, opacity: disabled ? 0.5 : 1 },
+        ]}
+      >
+        <Ionicons name="add" size={18} color="#fff" />
+        <Text style={styles.addBtnText}>إضافة</Text>
+      </TouchableOpacity>
 
       {/* Scores List */}
       <View style={styles.scoresList}>
         {scores.length === 0 && (
-          <Text style={styles.emptyText}>لا توجد نقاط بعد</Text>
+          <Text style={styles.emptyText}>لا توجد نقاط</Text>
         )}
         {scores.map((s, idx) => (
           <View
@@ -459,7 +472,7 @@ function PlayerColumn(props: {
               style={styles.deleteBtn}
               hitSlop={8}
             >
-              <Ionicons name="trash-outline" size={16} color="#F87171" />
+              <Ionicons name="trash-outline" size={14} color="#F87171" />
             </TouchableOpacity>
             <Text style={styles.scoreValue}>{s.value}</Text>
             <Text style={[styles.scoreIndex, { color: accent }]}>
@@ -502,7 +515,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   scrollContent: {
-    padding: 14,
+    padding: 12,
     paddingBottom: 40,
   },
   // Target
@@ -510,7 +523,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#151B30",
     borderRadius: 20,
     padding: 14,
-    marginBottom: 14,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.05)",
   },
@@ -523,7 +536,7 @@ const styles = StyleSheet.create({
   },
   targetRow: {
     flexDirection: "row-reverse",
-    gap: 8,
+    gap: 6,
     marginBottom: 10,
   },
   targetChip: {
@@ -541,7 +554,7 @@ const styles = StyleSheet.create({
   },
   targetChipText: {
     color: "#94A3B8",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "800",
   },
   targetChipTextActive: {
@@ -559,7 +572,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     color: "#fff",
-    fontSize: 15,
+    fontSize: 14,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
   },
@@ -593,61 +606,61 @@ const styles = StyleSheet.create({
   // Players layout
   playersWrap: {
     flexDirection: "row-reverse",
-    gap: 0,
     backgroundColor: "#151B30",
     borderRadius: 20,
-    padding: 12,
+    padding: 10,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.05)",
   },
   divider: {
     width: 2,
     backgroundColor: "rgba(255,255,255,0.08)",
-    marginHorizontal: 6,
+    marginHorizontal: 4,
     borderRadius: 2,
   },
   playerCol: {
     flex: 1,
-    paddingHorizontal: 4,
+    paddingHorizontal: 2,
   },
   nameInputWrap: {
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1.5,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginBottom: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginBottom: 8,
   },
   nameInput: {
     color: "#fff",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "800",
     paddingVertical: 8,
+    minHeight: 36,
   },
   totalCard: {
     backgroundColor: "#0B1020",
-    borderRadius: 14,
-    padding: 12,
+    borderRadius: 12,
+    padding: 10,
     alignItems: "center",
     borderWidth: 1.5,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   totalLabel: {
     color: "#94A3B8",
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
     marginBottom: 2,
   },
   totalValue: {
-    fontSize: 36,
+    fontSize: 30,
     fontWeight: "900",
   },
   progressTrack: {
     width: "100%",
-    height: 5,
+    height: 4,
     backgroundColor: "rgba(255,255,255,0.08)",
     borderRadius: 3,
     overflow: "hidden",
-    marginTop: 6,
+    marginTop: 4,
   },
   progressFill: {
     height: "100%",
@@ -657,67 +670,70 @@ const styles = StyleSheet.create({
     color: "#64748B",
     fontSize: 10,
     fontWeight: "700",
-    marginTop: 4,
-  },
-  addRow: {
-    flexDirection: "row-reverse",
-    gap: 6,
-    marginBottom: 10,
+    marginTop: 3,
   },
   scoreInput: {
-    flex: 1,
     backgroundColor: "#0B1020",
     color: "#fff",
     fontSize: 16,
-    fontWeight: "700",
+    fontWeight: "800",
     paddingVertical: 10,
-    borderRadius: 12,
+    paddingHorizontal: 8,
+    borderRadius: 10,
     borderWidth: 1.5,
+    marginBottom: 6,
   },
   addBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    flexDirection: "row-reverse",
     alignItems: "center",
     justifyContent: "center",
+    gap: 4,
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  addBtnText: {
+    color: "#fff",
+    fontWeight: "800",
+    fontSize: 13,
   },
   scoresList: {
-    gap: 6,
+    gap: 5,
   },
   emptyText: {
     color: "#475569",
-    fontSize: 12,
+    fontSize: 11,
     textAlign: "center",
-    paddingVertical: 20,
+    paddingVertical: 16,
     fontStyle: "italic",
   },
   scoreItem: {
     flexDirection: "row-reverse",
     alignItems: "center",
     backgroundColor: "#0B1020",
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.05)",
-    gap: 6,
+    gap: 4,
   },
   scoreIndex: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "800",
-    width: 18,
+    width: 16,
     textAlign: "center",
   },
   scoreValue: {
     flex: 1,
     color: "#fff",
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "800",
     textAlign: "center",
   },
   deleteBtn: {
-    width: 28,
-    height: 28,
+    width: 26,
+    height: 26,
     borderRadius: 8,
     backgroundColor: "rgba(248, 113, 113, 0.1)",
     alignItems: "center",
