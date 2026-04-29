@@ -142,6 +142,58 @@ export default function MafiaGame() {
   const [pendingBomberPull, setPendingBomberPull] = useState<string | null>(null);
   const [winner, setWinner] = useState<Team | null>(null);
 
+  const [hydrated, setHydrated] = useState(false);
+
+  // ============== Persistence: Load on mount ==============
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const s = JSON.parse(raw);
+          if (typeof s.phase === "string") setPhase(s.phase);
+          if (Array.isArray(s.playerNames)) setPlayerNames(s.playerNames);
+          if (s.roleCounts) setRoleCounts({ ...initialRoleCounts, ...s.roleCounts });
+          if (s.distribution) setDistribution(s.distribution);
+          if (Array.isArray(s.players)) setPlayers(s.players);
+          if (s.manualAssign) setManualAssign(s.manualAssign);
+          if (typeof s.revealIndex === "number") setRevealIndex(s.revealIndex);
+          if (typeof s.round === "number") setRound(s.round);
+          if (s.nightActions) {
+            setNightActions(s.nightActions);
+            nightActionsRef.current = s.nightActions;
+          }
+          if (s.lastDoctorProtect !== undefined) setLastDoctorProtect(s.lastDoctorProtect);
+          if (Array.isArray(s.nightSummary)) setNightSummary(s.nightSummary);
+          if (typeof s.voteVoterIndex === "number") setVoteVoterIndex(s.voteVoterIndex);
+          if (s.voteTally) setVoteTally(s.voteTally);
+          if (s.eliminatedPlayer !== undefined) setEliminatedPlayer(s.eliminatedPlayer);
+          if (s.pendingBomberPull !== undefined) setPendingBomberPull(s.pendingBomberPull);
+          if (s.winner !== undefined) setWinner(s.winner);
+        }
+      } catch (e) {
+        console.log("mafia load error", e);
+      } finally {
+        setHydrated(true);
+      }
+    })();
+  }, []);
+
+  // ============== Persistence: Save on every change (after hydration) ==============
+  useEffect(() => {
+    if (!hydrated) return;
+    const snapshot = {
+      phase, playerNames, roleCounts, distribution, players, manualAssign,
+      revealIndex, round, nightActions, lastDoctorProtect, nightSummary,
+      voteVoterIndex, voteTally, eliminatedPlayer, pendingBomberPull, winner,
+    };
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot)).catch(() => {});
+  }, [
+    hydrated, phase, playerNames, roleCounts, distribution, players, manualAssign,
+    revealIndex, round, nightActions, lastDoctorProtect, nightSummary,
+    voteVoterIndex, voteTally, eliminatedPlayer, pendingBomberPull, winner,
+  ]);
+
   // ============== Helpers ==============
   const totalPlayers = playerNames.length;
   const totalRolesSum = useMemo(
@@ -627,9 +679,9 @@ export default function MafiaGame() {
   };
 
   // ============== Restart ==============
+  // Note: KEEPS playerNames so users can replay with same group.
   const restartGame = () => {
     setPhase("intro");
-    setPlayerNames([]);
     setNewPlayerName("");
     setRoleCounts({ ...initialRoleCounts });
     setDistribution("random");
@@ -638,6 +690,7 @@ export default function MafiaGame() {
     setRevealIndex(0);
     setRevealShown(false);
     setRound(1);
+    nightActionsRef.current = {};
     setNightActions({});
     setLastDoctorProtect(null);
     setDetectiveResult(null);
@@ -649,6 +702,13 @@ export default function MafiaGame() {
     setPendingBomberPull(null);
     setWinner(null);
     haptic("success");
+  };
+
+  // Full reset including names + clear AsyncStorage
+  const fullResetGame = async () => {
+    restartGame();
+    setPlayerNames([]);
+    try { await AsyncStorage.removeItem(STORAGE_KEY); } catch {}
   };
 
   const exitToHome = () => {
