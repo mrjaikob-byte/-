@@ -1,0 +1,26 @@
+{
+  "summary": "Frontend-only verification of the new Mafia restart button (testID='mafia-restart-btn'). All 10 scripted checks passed: button is hidden on intro, visible on players/roleCounts/distribution/reveal phases, confirm dialog shows the exact Arabic message, cancel keeps state, confirm resets phase->intro/round->1/roleCounts all 0/players empty/winner null while preserving playerNames, and re-entering via mafia-start-button shows the 6 saved names L1..L6. AsyncStorage snapshot inspected and verified.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "mafia topBar", "issues": ["restart icon button bounding box is 42x42 which is just below the recommended 44x44 mobile touch-target. Tappable in practice but consider bumping to >=44px."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_11.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "restartGame() correctly preserves playerNames and resets all other slices including nightActionsRef.current. Save effect persists the new (clean) snapshot to AsyncStorage automatically.",
+    "Confirm dialog uses window.confirm on web with the exact requested Arabic copy and Alert.alert on native — good cross-platform handling.",
+    "File mafia.tsx is 2149 lines — consider splitting sub-screens into separate files for maintainability (not blocking)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "100% (10/10 checks)"},
+  "seed_data_creation": "Created 6 in-memory players L1..L6 during test; cleared via restartGame so no persisted seed remains beyond playerNames (intentional).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Mafia restart button feature verified end-to-end on web preview at viewport 414x900. To re-verify: clear localStorage, tap mafia-start-button, advance phases, override window.confirm to return false (cancel) then true (confirm), then inspect localStorage['mafia_game_state_v1'].",
+  "rca_of_issue": "N/A - feature works as specified. No bugs to RCA."
+}

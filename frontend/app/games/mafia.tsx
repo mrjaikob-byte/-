@@ -734,7 +734,27 @@ export default function MafiaGame() {
               <Ionicons name="arrow-forward" size={22} color="#fff" />
             </TouchableOpacity>
             <Text style={styles.topTitle}>لعبة المافيا</Text>
-            <View style={{ width: 42 }} />
+            <TouchableOpacity
+              testID="mafia-restart-btn"
+              onPress={() => {
+                const doIt = () => restartGame();
+                if (Platform.OS === "web") {
+                  if (window.confirm("إعادة بدء اللعبة؟ ستُحذف اللعبة الحالية وتبقى أسماء اللاعبين.")) doIt();
+                } else {
+                  Alert.alert(
+                    "إعادة بدء اللعبة",
+                    "سيتم إعادة الإعداد من البداية. أسماء اللاعبين ستبقى محفوظة.",
+                    [
+                      { text: "إلغاء", style: "cancel" },
+                      { text: "إعادة البدء", style: "destructive", onPress: doIt },
+                    ]
+                  );
+                }
+              }}
+              style={styles.iconBtn}
+            >
+              <Ionicons name="refresh" size={22} color="#FBBF24" />
+            </TouchableOpacity>
           </View>
         )}
 
