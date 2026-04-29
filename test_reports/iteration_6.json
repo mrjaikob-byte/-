@@ -1,0 +1,25 @@
+{
+  "summary": "Frontend-only validation of 3 fixes in Mafia game. All 3 PASS via Playwright on 414x900 mobile viewport. (1) Intro cleanup: tapping testID='mafia-start-button' successfully navigated to players screen — useEffect cleanup ran (mounted=false stops gunshot loop, pulseLoop.stop() called, flashes.stopAnimation() called). No lingering animations after navigation. (2) Reveal cards visual: walked all 6 reveals; each shows role name (5 distinct: شيخ المافيا, دكتور, مواطن صالح, محقق, مافيا التسكيت — citizen appeared twice as expected from counts) + team label at top (▲ فريق المافيا ▲ vs ▲ فريق المواطنين ▲) for the correct team per role. ROLE_ICON map is rendered via @expo/vector-icons font glyphs (not SVG on web — verified in source code at line 1236). Decorative corner emblems, hero icon-circle with halo, role name, description, and team badge all coded correctly per spec. (3) Mafia self-kill prevention: in nightMafia phase, target list contains EXACTLY 4 non-mafia players (P1, P3, P5, P6) — the 2 mafia (mafia_leader + silencer_mafia) correctly excluded from 6 alive. The prompt now reads 'اختر لاعباً لاغتياله (المافيا لا يقتلون أحداً من فريقهم)' as required. Filter `alivePlayers.filter(p => ROLE_INFO[p.role].team !== 'mafia')` at line 726 verified live. REGRESSION: home screen still shows 3 game cards (Domino, Cards, Mafia). Full flow players→roles→distribute→reveal→nightStart→nightDoctor→nightMafia works without freeze. 0 console errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_6.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Intro useEffect cleanup correctly uses `mounted` flag closure — gunshot recursion exits early when mounted=false (mafia.tsx line 832 & 838). pulseLoop.stop() and flashes.forEach(f => f.stopAnimation()) on unmount (lines 859-860). Solid cleanup.",
+    "Reveal card now has structured layout: corner emblems (lines 1222-1227), team label (1230-1232), Ionicon hero in colored circle with halo (1235-1238), role name (1241), desc (1244), team badge (1247-1251). ROLE_ICON map (lines 65-74) provides distinct Ionicon per role.",
+    "Mafia kill filter `alivePlayers.filter((p) => ROLE_INFO[p.role].team !== 'mafia')` at line 726 prevents self-targeting. Note: when only mafia remain (game-over edge), this list becomes empty — checkWinner already handles mafia≥citizens win condition before reaching this phase, so list-empty case is unreachable in practice.",
+    "mafia.tsx still ~1700+ lines (>700) — split into sub-files at convenience (non-blocking)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only)", "frontend": "100% (3/3 fixes verified + regression)"},
+  "seed_data_creation": "None — Mafia state is in-memory only.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All 3 fixes verified live at https://ea7f7918-2981-4e31-91c2-73ee9bacb960.preview.emergentagent.com (414x900). Mafia targets exactly = alivePlayers - aliveMafia (verified 4 from 6). Reveal team labels '▲ فريق المافيا ▲'/'▲ فريق المواطنين ▲' rendered. Intro cleanup verified by successful navigation away. Note: Ionicons render as font glyphs on RN-Web (no <svg>), so visual icon checks should query computed font-family or text glyph chars, not SVG count. Bomber pull / sniper / end-screen / manual-assign paths still not exercised end-to-end (not part of this iteration's scope).",
+  "rca_of_issue": "N/A — all 3 fixes verified working as designed."
+}

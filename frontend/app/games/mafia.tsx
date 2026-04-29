@@ -61,6 +61,18 @@ const ROLE_LIST: Role[] = [
   "citizen_leader", "mafia_leader", "silencer_mafia",
 ];
 
+// Distinct icon per role for the reveal card
+const ROLE_ICON: Record<Role, keyof typeof Ionicons.glyphMap> = {
+  citizen: "shield-checkmark",
+  doctor: "medkit",
+  detective: "search",
+  sniper: "locate",
+  bomber: "flame",
+  citizen_leader: "ribbon",
+  mafia_leader: "skull",
+  silencer_mafia: "volume-mute",
+};
+
 const MIN_PLAYERS = 6;
 const MAX_PLAYERS = 14;
 
@@ -708,10 +720,10 @@ export default function MafiaGame() {
           <NightActionScreen
             roleKey="mafia"
             title={mafiaLeaderAlive ? "دور شيخ المافيا" : "دور مافيا التسكيت (وريث القتل)"}
-            prompt="اختر لاعباً لاغتياله"
+            prompt="اختر لاعباً لاغتياله (المافيا لا يقتلون أحداً من فريقهم)"
             instruction={`يرجى تمرير الجوال إلى ${mafiaLeaderAlive ? "شيخ المافيا" : "مافيا التسكيت"}`}
             color={ROLE_INFO.mafia_leader.color}
-            players={alivePlayers}
+            players={alivePlayers.filter((p) => ROLE_INFO[p.role].team !== "mafia")}
             allowSkip={false}
             onSubmit={(id) => submitMafiaChoice(id)}
           />
@@ -806,6 +818,7 @@ function IntroScreen({ onStart, onBack }: { onStart: () => void; onBack: () => v
   const btnPulse = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
+    let mounted = true;
     Animated.parallel([
       Animated.spring(titleScale, { toValue: 1, useNativeDriver: true, friction: 5, tension: 80 }),
       Animated.timing(titleOpacity, { toValue: 1, duration: 600, useNativeDriver: true }),
@@ -813,14 +826,16 @@ function IntroScreen({ onStart, onBack }: { onStart: () => void; onBack: () => v
     Animated.timing(subtitleOpacity, { toValue: 1, duration: 700, delay: 600, useNativeDriver: true }).start();
     Animated.timing(btnOpacity, { toValue: 1, duration: 500, delay: 1200, useNativeDriver: true }).start();
 
-    // Random gunshot flashes
+    // Random gunshot flashes — only while mounted
     const gunshot = (anim: Animated.Value, delay: number) => {
       const loop = () => {
+        if (!mounted) return;
         Animated.sequence([
           Animated.delay(delay + Math.random() * 1500),
           Animated.timing(anim, { toValue: 1, duration: 80, useNativeDriver: true }),
           Animated.timing(anim, { toValue: 0, duration: 200, useNativeDriver: true }),
         ]).start(() => {
+          if (!mounted) return;
           haptic("heavy");
           loop();
         });
@@ -832,12 +847,18 @@ function IntroScreen({ onStart, onBack }: { onStart: () => void; onBack: () => v
     gunshot(flashes[2], 1800);
 
     // Button pulse
-    Animated.loop(
+    const pulseLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(btnPulse, { toValue: 1.08, duration: 800, useNativeDriver: true, easing: Easing.inOut(Easing.quad) }),
         Animated.timing(btnPulse, { toValue: 1, duration: 800, useNativeDriver: true, easing: Easing.inOut(Easing.quad) }),
       ])
-    ).start();
+    );
+    pulseLoop.start();
+    return () => {
+      mounted = false;
+      pulseLoop.stop();
+      flashes.forEach((f) => f.stopAnimation());
+    };
   }, [titleScale, titleOpacity, subtitleOpacity, btnOpacity, btnPulse, flashes]);
 
   return (
@@ -1194,15 +1215,38 @@ function RevealScreen(props: {
           <Animated.View
             style={[
               styles.cardFace, styles.cardFront,
-              { backgroundColor: info.color + "20", borderColor: info.color, opacity: backOpacity, transform: [{ rotateY: "180deg" }] }
+              { backgroundColor: info.color + "18", borderColor: info.color, opacity: backOpacity, transform: [{ rotateY: "180deg" }] }
             ]}
           >
-            <Text style={styles.cardEmoji}>{info.emoji}</Text>
-            <Text style={[styles.cardRoleName, { color: info.color }]}>{info.name}</Text>
+            {/* Decorative corner emblems */}
+            <View style={[styles.cardCornerTopRight, { borderColor: info.color }]}>
+              <Text style={[styles.cardCornerEmoji, { color: info.color }]}>{info.emoji}</Text>
+            </View>
+            <View style={[styles.cardCornerBotLeft, { borderColor: info.color }]}>
+              <Text style={[styles.cardCornerEmoji, { color: info.color }]}>{info.emoji}</Text>
+            </View>
+
+            {/* Top label */}
+            <Text style={[styles.cardTopLabel, { color: info.color }]}>
+              {info.team === "mafia" ? "▲ فريق المافيا ▲" : "▲ فريق المواطنين ▲"}
+            </Text>
+
+            {/* Hero icon in a circle */}
+            <View style={[styles.cardIconCircle, { borderColor: info.color, backgroundColor: info.color + "26" }]}>
+              <Ionicons name={ROLE_ICON[player.role]} size={88} color={info.color} />
+              <View style={[styles.cardIconHalo, { borderColor: info.color + "55" }]} />
+            </View>
+
+            {/* Role name */}
+            <Text style={[styles.cardRoleNameLarge, { color: info.color }]}>{info.name}</Text>
+
+            {/* Description */}
             <Text style={styles.cardRoleDesc}>{info.desc}</Text>
-            <View style={[styles.teamBadge, info.team === "mafia" ? styles.teamBadgeMafia : styles.teamBadgeCit, { marginTop: 12 }]}>
+
+            {/* Team badge */}
+            <View style={[styles.teamBadge, info.team === "mafia" ? styles.teamBadgeMafia : styles.teamBadgeCit, { marginTop: 8 }]}>
               <Text style={[styles.teamBadgeText, info.team === "mafia" ? { color: "#FCA5A5" } : { color: "#86EFAC" }]}>
-                {info.team === "mafia" ? "فريق المافيا" : "فريق المواطنين"}
+                {info.team === "mafia" ? "🔪 فريق المافيا" : "🛡️ فريق المواطنين"}
               </Text>
             </View>
           </Animated.View>
@@ -1855,10 +1899,39 @@ const styles = StyleSheet.create({
   cardFront: {},
   cardEmoji: { fontSize: 64 },
   cardRoleName: { fontSize: 28, fontWeight: "900", marginTop: 8, textAlign: "center" },
+  cardRoleNameLarge: {
+    fontSize: 26, fontWeight: "900", marginTop: 14, textAlign: "center",
+    letterSpacing: 0.5,
+  },
   cardRoleDesc: {
-    color: "#94A3B8", fontSize: 12, fontWeight: "700",
+    color: "#CBD5E1", fontSize: 12, fontWeight: "700",
     textAlign: "center", marginTop: 8, lineHeight: 18, paddingHorizontal: 8,
   },
+  cardTopLabel: {
+    fontSize: 11, fontWeight: "900", letterSpacing: 1,
+    position: "absolute", top: 18, alignSelf: "center",
+  },
+  cardIconCircle: {
+    width: 130, height: 130, borderRadius: 65,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 3, marginTop: 10, position: "relative",
+  },
+  cardIconHalo: {
+    position: "absolute", width: 150, height: 150, borderRadius: 75,
+    borderWidth: 1, top: -10, left: -10,
+  },
+  cardCornerTopRight: {
+    position: "absolute", top: 8, right: 8,
+    width: 36, height: 36, borderRadius: 8,
+    borderWidth: 1.5, alignItems: "center", justifyContent: "center",
+  },
+  cardCornerBotLeft: {
+    position: "absolute", bottom: 8, left: 8,
+    width: 36, height: 36, borderRadius: 8,
+    borderWidth: 1.5, alignItems: "center", justifyContent: "center",
+    transform: [{ rotate: "180deg" }],
+  },
+  cardCornerEmoji: { fontSize: 18, fontWeight: "900" },
   // Pass device card
   passDevice: {
     backgroundColor: "#151B30", borderRadius: 22, padding: 28,
