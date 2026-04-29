@@ -41,6 +41,15 @@ const GAMES: Game[] = [
     available: true,
   },
   {
+    id: "mafia",
+    name: "لعبة المافيا",
+    description: "6-14 لاعب • أدوار سريّة • جولات ليلية ونهاريّة",
+    icon: "skull",
+    colors: ["#DC2626", "#7C2D12"],
+    route: "/games/mafia",
+    available: true,
+  },
+  {
     id: "soon-1",
     name: "قريباً",
     description: "ألعاب جديدة في الطريق",
@@ -76,7 +85,7 @@ export default function Home() {
           {/* Stats Row */}
           <View style={styles.statsRow}>
             <View style={styles.statCard}>
-              <Text style={styles.statValue}>2</Text>
+              <Text style={styles.statValue}>3</Text>
               <Text style={styles.statLabel}>ألعاب متاحة</Text>
             </View>
             <View style={styles.statCard}>
@@ -84,8 +93,8 @@ export default function Home() {
               <Text style={styles.statLabel}>متعة بلا حدود</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={styles.statValue}>4</Text>
-              <Text style={styles.statLabel}>لاعبين كحد أقصى</Text>
+              <Text style={styles.statValue}>14</Text>
+              <Text style={styles.statLabel}>لاعب كحد أقصى</Text>
             </View>
           </View>
 
