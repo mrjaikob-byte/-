@@ -1293,22 +1293,17 @@ function RevealScreen(props: {
   shown: boolean; onReveal: () => void; onNext: () => void;
 }) {
   const { player, index, total, shown, onReveal, onNext } = props;
-  const appear = useRef(new Animated.Value(0)).current;
-  const backScale = useRef(new Animated.Value(1)).current;
+  const scale = useRef(new Animated.Value(1)).current;
 
+  // Reset and animate scale only on each new player or reveal
   useEffect(() => {
-    appear.setValue(0);
-    backScale.setValue(1);
-  }, [index, appear, backScale]);
-
-  useEffect(() => {
-    if (shown) {
-      Animated.parallel([
-        Animated.timing(backScale, { toValue: 0, duration: 200, useNativeDriver: true }),
-        Animated.spring(appear, { toValue: 1, useNativeDriver: true, friction: 6, tension: 80, delay: 150 }),
-      ]).start();
-    }
-  }, [shown, appear, backScale]);
+    scale.setValue(0.85);
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      friction: 6, tension: 80,
+    }).start();
+  }, [index, shown, scale]);
 
   if (!player) return null;
   const info = ROLE_INFO[player.role];
@@ -1323,7 +1318,7 @@ function RevealScreen(props: {
           <Animated.View
             style={[
               styles.cardBox, styles.cardBack,
-              { transform: [{ scale: backScale }], opacity: backScale },
+              { transform: [{ scale }] },
             ]}
           >
             <Ionicons name="help" size={84} color="#FBBF24" />
@@ -1338,10 +1333,7 @@ function RevealScreen(props: {
                 backgroundColor: info.color + "22",
                 borderColor: info.color,
                 borderWidth: 2,
-                opacity: appear,
-                transform: [
-                  { scale: appear.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) },
-                ],
+                transform: [{ scale }],
               },
             ]}
           >

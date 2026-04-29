@@ -1,0 +1,26 @@
+{
+  "summary": "Verified the mafia reveal-card fix on the live web preview (414x900 viewport). Ran the full PRIMARY scenario: open Mafia → start → add 6 players (Ali, Sara, Omar, Lina, Yusuf, Nora) → set roles citizen=2, doctor=1, detective=1, mafia_leader=1, silencer_mafia=1 (sum=6) → distribute random → reveal screen. For every one of the 6 players, after pressing testID 'reveal-btn' the front card was rendered IMMEDIATELY with full content (no blank frame): role icon (shield-checkmark/medkit/search/skull/volume-mute as applicable), role name (e.g. مواطن صالح), description, team badge ('فريق المواطنين' or 'فريق المافيا'), and decorative corner emblems. DOM check confirmed opacity='1' on the rendered card and its full ancestor chain (no fade-in stuck at 0). Pressing 'reveal-next-btn' advanced cleanly through all players; on the 6th player the button label became 'بدء اللعبة' and tapping it navigated to nightStart (start-night-btn visible). Tapping start-night-btn advanced to the nightDoctor screen as expected. No red screen, no blank states, no console errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "global", "issue": "Console warning: useNativeDriver is not supported on web (falls back to JS). Cosmetic only — does not affect the reveal-card behavior. Same warning was present in prior iterations."},
+      {"component": "global", "issue": "Deprecation console warnings: 'shadow*' and 'textShadow*' style props, and props.pointerEvents — cosmetic only, not regressions of this fix."}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_12.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "/app/frontend/app/games/mafia.tsx is ~1700+ lines. Recommended (non-blocking) to extract sub-screens (RevealScreen, NightActionScreen, VotingScreen, etc.) into separate files for maintainability.",
+    "RevealScreen useEffect depends on [index, shown, scale] and resets scale to 0.85 on every change — current behavior matches the intended 'simple scale spring 0.85→1' fix; opacity is no longer animated, so the front card cannot be blank at start (verified)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only request)", "frontend": "100% on the reveal-card primary scenario and the next-phase navigation"},
+  "seed_data_creation": "None. Test added 6 in-app player names (Ali, Sara, Omar, Lina, Yusuf, Nora) via the UI; persisted in AsyncStorage by the app itself.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Use viewport 414x900. Saved player names persist in AsyncStorage under 'mafia_game_state_v1' so a previous session may pre-populate names — if the row count is already >=6 just continue. The mafia card on the home screen does not have a stable testID known here; tap by Arabic text 'المافيا' if 'game-card-mafia' is missing. Reveal flow uses testIDs: reveal-btn (back→front) and reveal-next-btn (advance/finish). After all 6 reveals → start-night-btn appears.",
+  "rca_of_issue": "Original blank front-card on iOS native was caused by an opacity Animated.Value that, combined with delay+spring and useNativeDriver behavior, sometimes never reached 1. The fix removes the opacity animation entirely — the front card has no opacity prop now and therefore renders at the platform default opacity 1 the moment 'shown' becomes true. Only a single shared 'scale' Animated.Value (0.85→1 spring) runs on each new index/shown change. DOM verification on web confirmed opacity=1 immediately after pressing reveal-btn; visual screenshots show full role content with no blank frame. Reproduction in the previous bug is not observable on web preview, but the implementation change is consistent with what would also fix the native iOS regression."
+}
