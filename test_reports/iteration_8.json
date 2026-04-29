@@ -1,0 +1,27 @@
+{
+  "summary": "BOTH BUG FIXES VERIFIED via end-to-end Playwright at 414x900 on the public preview URL. (1) Card reveal regression: 6/6 reveals showed full front card (icon + role name + team + description) — confirmed already in iter_7 and re-confirmed today during two full game runs. (2) CRITICAL sniper resolution fix: confirmed resolveNight() now reads from nightActionsRef.current (synchronously updated by updateNightActions in submitSniperChoice) — sniper actions are applied correctly. TEST A (sniper hits mafia_leader): Sniper P1 shot mafia_leader P4 → P4 eliminated with reason 'قنصه القناص / كان: شيخ المافيا'; sniper P1 survived (no 'خرج القناص' entry); mafia kill of citizen P3 also applied correctly with reason 'قُتل من قِبَل المافيا'. TEST B (sniper hits citizen): Doctor protected mafia_leader P4, mafia killed detective P3, sniper P5 shot citizen P6 → end-game screen shows P6 'خرج (قنص القناص)' AND sniper P5 'خرج (قنص مواطن صالح)' (BOTH dead) AND P3 'خرج (قتل المافيا)' AND mafia team wins (3 alive: 2 mafia vs 1 doctor). REGRESSION: Home renders 3 game cards (mafia/cards/domino + soon-1 placeholder); full mafia flow setup→players→roleCounts→distribution→6 reveals→nightStart→nightDoctor→nightMafia→nightSilencer (skip works)→nightDetective+result+dismiss→nightSniper→dayResults→endScreen all transitioned without freeze. 0 page errors during both runs (only style deprecation warnings from RN-Web).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_8.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "nightActionsRef pattern (mafia.tsx L124-128) is correctly implemented: updateNightActions() mutates ref synchronously THEN schedules setNightActions for re-render. resolveNight() at L405 reads `nightActionsRef.current` so it never sees stale state regardless of React batching/timing. Verified live: sniperTargetId persisted into resolveNight on the same tick.",
+    "ref is properly cleared at startNight (L338) and resetGame (L610), so cross-round/cross-game contamination is prevented.",
+    "sniper screen passes ALL alivePlayers (no filter) — correct: sniper can target anyone including mafia. Mafia screen filters to non-mafia (L733) — correct. Sniper himself is NOT filtered out of mafia targets list since sniper.team === 'citizens' — by design sniper can be killed by mafia.",
+    "End-screen gracefully handled the case where the game ended immediately after night resolution (mafia gained majority via sniper killing himself + mafia kill) — checkWinner() at L469 ran after setPlayers and routed phase to gameOver, bypassing dayResults. This is correct behavior.",
+    "mafia.tsx is now 2039 lines — non-blocking but recommend extracting RevealScreen, NightActionScreen, DayResultsScreen, VotingScreen, EndScreen into /app/frontend/components/mafia/ for maintainability.",
+    "RN-Web console warnings (shadow*/textShadow*/pointerEvents deprecation, useNativeDriver fallback) are harmless on web preview but worth migrating to boxShadow/textShadow/style.pointerEvents for forward-compat with newer react-native-web."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only)", "frontend": "100% — both sniper test scenarios + reveal regression + full game flow all passed"},
+  "seed_data_creation": "None — Mafia state is in-memory only.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Both Mafia bugs (blank reveal cards + sniper no-op) are FIXED and verified end-to-end. Reproducer for sniper test: setup 6 players, roles citizen=1/doctor=1/detective=1/sniper=1/mafia_leader=1/silencer_mafia=1, distribute random, walk all 6 reveals, then night phases with sniper choosing a target via testID `night-sniper-target-{id}` + `night-sniper-confirm`. Verify on dayResults (or end screen if mafia majority) that 'قنصه القناص' (sniped) and/or 'خرج القناص لأنه أصاب مواطناً' (sniper-self-elimination) appear. Player IDs are dynamic (`p-{i}-{Date.now()}`) so map names→ids by reading targetRow textContent. Bomber pull, vote-tie, manual-assign paths still untested but coded.",
+  "rca_of_issue": "Sniper bug RCA (now fixed): resolveNight() previously read `nightActions` directly from the React state closure. Because submitSniperChoice → setNightActions(...) is asynchronous (React batches state updates and the new state is only visible on the next render), and advanceNightFrom('nightSniper') → resolveNight() ran synchronously within the same tick, resolveNight saw the OLD nightActions value (without sniperTargetId), so the sniper branch never executed and shooting did nothing. FIX: introduced nightActionsRef (useRef<NightActions>) and a helper updateNightActions(patch) that (a) mutates the ref synchronously and (b) schedules setNightActions for UI re-render. resolveNight() now reads `nightActionsRef.current`, which is guaranteed to contain the just-submitted sniper target. Verified on the public preview URL: sniper-hits-mafia and sniper-hits-citizen both produce correct outcomes. Reveal RCA already documented in iter_7."
+}

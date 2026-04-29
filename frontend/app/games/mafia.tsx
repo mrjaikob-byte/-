@@ -121,6 +121,12 @@ export default function MafiaGame() {
 
   const [round, setRound] = useState(1);
   const [nightActions, setNightActions] = useState<NightActions>({});
+  // Ref kept in sync with nightActions to avoid stale-state in resolveNight()
+  const nightActionsRef = useRef<NightActions>({});
+  const updateNightActions = (patch: Partial<NightActions>) => {
+    nightActionsRef.current = { ...nightActionsRef.current, ...patch };
+    setNightActions({ ...nightActionsRef.current });
+  };
   const [lastDoctorProtect, setLastDoctorProtect] = useState<string | null>(null);
   const [detectiveResult, setDetectiveResult] = useState<{ name: string; isMafia: boolean } | null>(null);
   const [nightSummary, setNightSummary] = useState<{ id: string; reason: string; name: string; role: Role }[]>([]);
@@ -329,7 +335,7 @@ export default function MafiaGame() {
   // ============== Night flow ==============
   const startNight = () => {
     haptic("medium");
-    // skip phases without role
+    nightActionsRef.current = {};
     setNightActions({});
     setProtectedThisNight(null);
     advanceNightFrom("nightStart");
@@ -362,22 +368,22 @@ export default function MafiaGame() {
   };
 
   const submitDoctorChoice = (id: string | null) => {
-    setNightActions((n) => ({ ...n, doctorProtectId: id }));
+    updateNightActions({ doctorProtectId: id });
     haptic("medium");
     advanceNightFrom("nightDoctor");
   };
   const submitMafiaChoice = (id: string | null) => {
-    setNightActions((n) => ({ ...n, mafiaTargetId: id }));
+    updateNightActions({ mafiaTargetId: id });
     haptic("heavy");
     advanceNightFrom("nightMafia");
   };
   const submitSilencerChoice = (id: string | null) => {
-    setNightActions((n) => ({ ...n, silencerTargetId: id }));
+    updateNightActions({ silencerTargetId: id });
     haptic("medium");
     advanceNightFrom("nightSilencer");
   };
   const submitDetectiveChoice = (id: string) => {
-    setNightActions((n) => ({ ...n, detectiveTargetId: id }));
+    updateNightActions({ detectiveTargetId: id });
     haptic("medium");
     const target = players.find((p) => p.id === id);
     if (target) {
@@ -389,14 +395,14 @@ export default function MafiaGame() {
     advanceNightFrom("nightDetective");
   };
   const submitSniperChoice = (id: string | null, skip: boolean) => {
-    setNightActions((n) => ({ ...n, sniperTargetId: id, sniperSkip: skip }));
+    updateNightActions({ sniperTargetId: id, sniperSkip: skip });
     haptic(skip ? "light" : "heavy");
     advanceNightFrom("nightSniper");
   };
 
   // ============== Resolve Night ==============
   const resolveNight = () => {
-    const actions = { ...nightActions };
+    const actions = nightActionsRef.current;
     const updated: Player[] = players.map((p) => ({ ...p }));
     const summary: { id: string; reason: string; name: string; role: Role }[] = [];
     const protectedId = actions.doctorProtectId || null;
@@ -601,6 +607,7 @@ export default function MafiaGame() {
     const cleared = base.map((p) => ({ ...p, silencedNextDay: false }));
     setPlayers(cleared);
     setRound((r) => r + 1);
+    nightActionsRef.current = {};
     setNightActions({});
     setNightSummary([]);
     setEliminatedPlayer(null);
@@ -1210,11 +1217,10 @@ function RevealScreen(props: {
       <Text style={styles.phaseHint}>اللاعب {index + 1} / {total}</Text>
 
       <View style={styles.cardArea}>
-        {/* Back card */}
-        {!shown && (
+        {!shown ? (
           <Animated.View
             style={[
-              styles.cardAbsolute, styles.cardBack,
+              styles.cardBox, styles.cardBack,
               { transform: [{ scale: backScale }], opacity: backScale },
             ]}
           >
@@ -1222,16 +1228,14 @@ function RevealScreen(props: {
             <Text style={styles.cardBackName}>{player.name}</Text>
             <Text style={styles.cardBackHint}>اضغط لكشف دورك</Text>
           </Animated.View>
-        )}
-
-        {/* Front card (revealed) */}
-        {shown && (
+        ) : (
           <Animated.View
             style={[
-              styles.cardAbsolute, styles.cardFront,
+              styles.cardBox,
               {
-                backgroundColor: info.color + "18",
+                backgroundColor: info.color + "22",
                 borderColor: info.color,
+                borderWidth: 2,
                 opacity: appear,
                 transform: [
                   { scale: appear.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) },
@@ -1253,7 +1257,6 @@ function RevealScreen(props: {
 
             <View style={[styles.cardIconCircle, { borderColor: info.color, backgroundColor: info.color + "26" }]}>
               <Ionicons name={ROLE_ICON[player.role]} size={88} color={info.color} />
-              <View style={[styles.cardIconHalo, { borderColor: info.color + "55" }]} />
             </View>
 
             <Text style={[styles.cardRoleNameLarge, { color: info.color }]}>{info.name}</Text>
@@ -1897,29 +1900,27 @@ const styles = StyleSheet.create({
   pickerItemRem: { color: "#64748B", fontSize: 11, fontWeight: "700", marginTop: 2 },
   // Reveal card
   cardArea: {
-    width: 290, height: 400,
+    width: 290,
     marginVertical: 14,
     alignItems: "center", justifyContent: "center",
-    position: "relative",
   },
-  cardAbsolute: {
-    position: "absolute",
-    width: 290, height: 400,
+  cardBox: {
+    width: 290, minHeight: 400,
     borderRadius: 22, padding: 20,
     alignItems: "center", justifyContent: "center",
-    borderWidth: 2,
+    backgroundColor: "#1E293B",
   },
   cardFlip: {
     width: 280, height: 360, position: "relative",
   },
   cardFace: {
-    position: "absolute", width: "100%", height: "100%",
+    width: "100%", minHeight: 360,
     borderRadius: 22, padding: 20,
     alignItems: "center", justifyContent: "center",
     borderWidth: 2,
   },
   cardBack: {
-    backgroundColor: "#1E293B", borderColor: "#FBBF24", gap: 14,
+    backgroundColor: "#1E293B", borderWidth: 2, borderColor: "#FBBF24", gap: 14,
   },
   cardBackName: { color: "#fff", fontSize: 22, fontWeight: "900" },
   cardBackHint: { color: "#94A3B8", fontSize: 12, fontWeight: "700" },
