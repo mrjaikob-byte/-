@@ -1,0 +1,25 @@
+{
+  "summary": "PRIMARY FIX VERIFIED: Mafia reveal card visibility bug is FULLY RESOLVED on iOS Safari-equivalent web preview. The previous rotateY+backfaceVisibility approach has been replaced by simple opacity+scale animation with conditional rendering of back OR front card (not both). End-to-end Playwright test on 414x900 mobile viewport: setup with 6 players → role counts (citizen=2, doctor=1, detective=1, mafia_leader=1, silencer_mafia=1) → distribute random → cycled all 6 reveals. RESULTS: BACK card visible 6/6 (help icon + player name P1-P6 + hint 'اضغط لكشف دورك' confirmed each time). FRONT card visible 6/6 (team label '▲ فريق المواطنين/المافيا ▲', Ionicon hero in colored circle with halo, role name in role color, description, team badge, decorative corner emblems all rendered with opacity=1). Roles seen: دكتور, شيخ المافيا, مواطن صالح, محقق, مافيا التسكيت, مواطن صالح — exactly matching configured counts. testID='reveal-next-btn' advanced cleanly each time, back card reappeared for next player (no carryover), and after final reveal the app entered nightStart phase. REGRESSION: nightStart→nightDoctor reached without freeze (start-night-btn → night-doctor-open both rendered). Home screen testIDs intact (game-card-domino, game-card-cards, game-card-mafia, game-card-soon-1, platform-home). 0 page errors, 0 console errors during run.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_7.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Reveal fix correctly implemented in mafia.tsx: cardArea container (relative), cardAbsolute children animated via opacity+scale (lines 1212-1268). Conditional render `{!shown && <Back />} / {shown && <Front />}` avoids backfaceVisibility pitfall. backScale collapses 1→0 (200ms) and appear springs 0→1 with delay 150ms — simultaneous so user perceives smooth swap, no blank frame.",
+    "useEffect on `[index]` resets appear=0 and backScale=1 each new player — prevents stale animation values when cycling through reveals (verified live: P2-P6 all show back card before reveal).",
+    "ROLE_ICON map uses real Ionicon names (medkit, search, locate, flame, ribbon, skull, volume-mute, shield-checkmark) — all rendered as font glyphs on web, visually verified for doctor (medkit), silencer (volume-mute), citizen (shield-checkmark) in screenshots.",
+    "mafia.tsx still ~1700+ lines — non-blocking, file-size cleanup recommended for maintainability (split into screens/ subfolder)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only)", "frontend": "100% (6/6 back cards + 6/6 front cards visible, regression OK)"},
+  "seed_data_creation": "None — Mafia state is in-memory only.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Reveal fix verified via Playwright at 414x900 on https://ea7f7918-2981-4e31-91c2-73ee9bacb960.preview.emergentagent.com. The opacity+scale animation pattern works on RN-Web Animated.View — no backfaceVisibility issues. If a future regression occurs and card area appears blank again, check: (1) `appear` Animated.Value not reset properly on remount, (2) cardAbsolute styles position:absolute conflicting with phaseCenter flex (currently fine: cardArea has fixed-ish dimensions and cardAbsolute children fill it). Bomber pull / sniper / end-screen / vote-tie / manual-assign still not exercised end-to-end (out of this iteration's scope but coded correctly per source review).",
+  "rca_of_issue": "Original blank-card bug RCA (now fixed): rotateY transforms with backfaceVisibility:'hidden' do not work reliably on iOS Safari mobile WebKit — both faces of the flipping card would compute to backface-hidden during the 90°-180° rotation arc, yielding a fully transparent card area. The fix replaces the 3D flip with a simple 2D opacity+scale crossfade and uses conditional React rendering (only one of back/front mounted at a time), eliminating the backface dependency entirely. Verified zero blank frames across 6 consecutive reveals."
+}

@@ -1184,41 +1184,62 @@ function RevealScreen(props: {
   shown: boolean; onReveal: () => void; onNext: () => void;
 }) {
   const { player, index, total, shown, onReveal, onNext } = props;
-  const flip = useRef(new Animated.Value(0)).current;
+  const appear = useRef(new Animated.Value(0)).current;
+  const backScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    flip.setValue(0);
+    appear.setValue(0);
+    backScale.setValue(1);
+  }, [index, appear, backScale]);
+
+  useEffect(() => {
     if (shown) {
-      Animated.spring(flip, { toValue: 1, useNativeDriver: true, friction: 6, tension: 60 }).start();
+      Animated.parallel([
+        Animated.timing(backScale, { toValue: 0, duration: 200, useNativeDriver: true }),
+        Animated.spring(appear, { toValue: 1, useNativeDriver: true, friction: 6, tension: 80, delay: 150 }),
+      ]).start();
     }
-  }, [shown, flip, index]);
+  }, [shown, appear, backScale]);
 
   if (!player) return null;
   const info = ROLE_INFO[player.role];
-
-  const rotateY = flip.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "180deg"] });
-  const frontOpacity = flip.interpolate({ inputRange: [0, 0.5, 0.51, 1], outputRange: [1, 1, 0, 0] });
-  const backOpacity = flip.interpolate({ inputRange: [0, 0.49, 0.5, 1], outputRange: [0, 0, 1, 1] });
 
   return (
     <View style={styles.phaseCenter}>
       <Text style={styles.phaseTitle}>كشف الكارتات</Text>
       <Text style={styles.phaseHint}>اللاعب {index + 1} / {total}</Text>
 
-      <View style={{ height: 380, justifyContent: "center", alignItems: "center" }}>
-        <Animated.View style={[styles.cardFlip, { transform: [{ perspective: 1000 }, { rotateY }] }]}>
-          <Animated.View style={[styles.cardFace, styles.cardBack, { opacity: frontOpacity }]}>
-            <Ionicons name="help" size={72} color="#FBBF24" />
+      <View style={styles.cardArea}>
+        {/* Back card */}
+        {!shown && (
+          <Animated.View
+            style={[
+              styles.cardAbsolute, styles.cardBack,
+              { transform: [{ scale: backScale }], opacity: backScale },
+            ]}
+          >
+            <Ionicons name="help" size={84} color="#FBBF24" />
             <Text style={styles.cardBackName}>{player.name}</Text>
             <Text style={styles.cardBackHint}>اضغط لكشف دورك</Text>
           </Animated.View>
+        )}
+
+        {/* Front card (revealed) */}
+        {shown && (
           <Animated.View
             style={[
-              styles.cardFace, styles.cardFront,
-              { backgroundColor: info.color + "18", borderColor: info.color, opacity: backOpacity, transform: [{ rotateY: "180deg" }] }
+              styles.cardAbsolute, styles.cardFront,
+              {
+                backgroundColor: info.color + "18",
+                borderColor: info.color,
+                opacity: appear,
+                transform: [
+                  { scale: appear.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) },
+                ],
+              },
             ]}
           >
-            {/* Decorative corner emblems */}
+            {/* Decorative corners */}
             <View style={[styles.cardCornerTopRight, { borderColor: info.color }]}>
               <Text style={[styles.cardCornerEmoji, { color: info.color }]}>{info.emoji}</Text>
             </View>
@@ -1226,31 +1247,25 @@ function RevealScreen(props: {
               <Text style={[styles.cardCornerEmoji, { color: info.color }]}>{info.emoji}</Text>
             </View>
 
-            {/* Top label */}
             <Text style={[styles.cardTopLabel, { color: info.color }]}>
               {info.team === "mafia" ? "▲ فريق المافيا ▲" : "▲ فريق المواطنين ▲"}
             </Text>
 
-            {/* Hero icon in a circle */}
             <View style={[styles.cardIconCircle, { borderColor: info.color, backgroundColor: info.color + "26" }]}>
               <Ionicons name={ROLE_ICON[player.role]} size={88} color={info.color} />
               <View style={[styles.cardIconHalo, { borderColor: info.color + "55" }]} />
             </View>
 
-            {/* Role name */}
             <Text style={[styles.cardRoleNameLarge, { color: info.color }]}>{info.name}</Text>
-
-            {/* Description */}
             <Text style={styles.cardRoleDesc}>{info.desc}</Text>
 
-            {/* Team badge */}
             <View style={[styles.teamBadge, info.team === "mafia" ? styles.teamBadgeMafia : styles.teamBadgeCit, { marginTop: 8 }]}>
               <Text style={[styles.teamBadgeText, info.team === "mafia" ? { color: "#FCA5A5" } : { color: "#86EFAC" }]}>
                 {info.team === "mafia" ? "🔪 فريق المافيا" : "🛡️ فريق المواطنين"}
               </Text>
             </View>
           </Animated.View>
-        </Animated.View>
+        )}
       </View>
 
       {!shown ? (
@@ -1881,6 +1896,19 @@ const styles = StyleSheet.create({
   pickerItemName: { fontSize: 14, fontWeight: "800" },
   pickerItemRem: { color: "#64748B", fontSize: 11, fontWeight: "700", marginTop: 2 },
   // Reveal card
+  cardArea: {
+    width: 290, height: 400,
+    marginVertical: 14,
+    alignItems: "center", justifyContent: "center",
+    position: "relative",
+  },
+  cardAbsolute: {
+    position: "absolute",
+    width: 290, height: 400,
+    borderRadius: 22, padding: 20,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 2,
+  },
   cardFlip: {
     width: 280, height: 360, position: "relative",
   },
@@ -1888,7 +1916,6 @@ const styles = StyleSheet.create({
     position: "absolute", width: "100%", height: "100%",
     borderRadius: 22, padding: 20,
     alignItems: "center", justifyContent: "center",
-    backfaceVisibility: "hidden",
     borderWidth: 2,
   },
   cardBack: {
