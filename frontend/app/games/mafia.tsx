@@ -7,6 +7,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const STORAGE_KEY = "mafia_game_state_v1";
 
 // ============== Types ==============
 type Role =
@@ -681,6 +684,16 @@ export default function MafiaGame() {
             names={playerNames} newName={newPlayerName} setNewName={setNewPlayerName}
             onAdd={addPlayer} onRemove={removePlayer} onRename={renamePlayer}
             onNext={goToRoleCounts}
+            onClearAll={() => {
+              if (Platform.OS === "web") {
+                if (window.confirm("مسح جميع الأسماء؟")) setPlayerNames([]);
+              } else {
+                Alert.alert("تأكيد", "مسح جميع الأسماء؟", [
+                  { text: "إلغاء", style: "cancel" },
+                  { text: "مسح", style: "destructive", onPress: () => setPlayerNames([]) },
+                ]);
+              }
+            }}
           />
         )}
         {phase === "roleCounts" && (
@@ -911,17 +924,26 @@ function IntroScreen({ onStart, onBack }: { onStart: () => void; onBack: () => v
 function PlayersScreen(props: {
   names: string[]; newName: string; setNewName: (s: string) => void;
   onAdd: () => void; onRemove: (i: number) => void; onRename: (i: number, n: string) => void;
-  onNext: () => void;
+  onNext: () => void; onClearAll: () => void;
 }) {
-  const { names, newName, setNewName, onAdd, onRemove, onRename, onNext } = props;
+  const { names, newName, setNewName, onAdd, onRemove, onRename, onNext, onClearAll } = props;
   const valid = names.length >= MIN_PLAYERS && names.length <= MAX_PLAYERS;
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <ScrollView contentContainerStyle={styles.phaseScroll} keyboardShouldPersistTaps="handled">
-        <Text style={styles.phaseTitle}>إضافة اللاعبين</Text>
+        <View style={{ flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between" }}>
+          <Text style={styles.phaseTitle}>إضافة اللاعبين</Text>
+          {names.length > 0 && (
+            <TouchableOpacity testID="clear-names-btn" onPress={onClearAll} style={styles.clearAllBtn}>
+              <Ionicons name="trash" size={14} color="#F87171" />
+              <Text style={styles.clearAllText}>مسح الكل</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         <Text style={styles.phaseHint}>
           عدد اللاعبين بين {MIN_PLAYERS} و {MAX_PLAYERS} • الحالي: {names.length}
+          {names.length > 0 && "  •  محفوظ تلقائياً"}
         </Text>
 
         <View style={styles.addPlayerRow}>
@@ -2036,4 +2058,11 @@ const styles = StyleSheet.create({
     padding: 10, borderWidth: 1.5, gap: 10,
   },
   endStateText: { fontSize: 11, fontWeight: "800" },
+  clearAllBtn: {
+    flexDirection: "row-reverse", alignItems: "center", gap: 4,
+    backgroundColor: "rgba(248,113,113,0.12)",
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 100,
+    borderWidth: 1, borderColor: "rgba(248,113,113,0.3)",
+  },
+  clearAllText: { color: "#F87171", fontSize: 11, fontWeight: "800" },
 });
