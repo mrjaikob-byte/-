@@ -1,0 +1,31 @@
+{
+  "summary": "Frontend-only regression/visual test of the enhanced home screen with AI-generated hero images (domino/cards/mafia). All critical testIDs present, all 3 hero images load correctly (naturalWidth 1376x768, complete=True, rendered at 376x200), mafia 'مميزة' badge visible, navigation to /games/domino, /games/cards, /games/mafia works, and game-card-soon-1 is present with aria-disabled=true and does not navigate on click. Stat value for stat-games = 3 as expected. All core flows verified.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "index.tsx (HeroCard Animated.View)", "issue": "Console warning: 'props.pointerEvents is deprecated. Use style.pointerEvents'. Currently set as prop on Animated.View for shine/title-shimmer. Non-blocking but should be moved into style.pointerEvents for RN web compatibility."},
+      {"component": "global styles", "issue": "Console warnings: 'shadow*' and 'textShadow*' style props are deprecated on web — use boxShadow/textShadow. Non-blocking."},
+      {"component": "Animated (home animations)", "issue": "Console warning: useNativeDriver not supported on web, falls back to JS-based animation. Expected on Expo web; no user-facing impact."}
+    ]
+  },
+  "test_report_links": ["/tmp/screens/home_full.png", "/tmp/screens/domino.png", "/tmp/screens/cards.png", "/tmp/screens/mafia.png"],
+  "action_items": [
+    "(Optional / low-priority) Move pointerEvents from Animated.View props to style.pointerEvents in HeroCard shine and title shimmer to silence RN-web deprecation warning.",
+    "(Optional) Replace shadow*/textShadow* StyleSheet keys with boxShadow/textShadow equivalents for web."
+  ],
+  "critical_code_review_comments": [
+    "index.tsx is 517 lines — still within the 700-line threshold but growing; consider extracting HeroCard and FloatingBlob into separate files if additional games are added.",
+    "Image sources wired via require() and rendered correctly; overlay gradients keep titles legible.",
+    "Pressable uses `disabled={!game.available}` correctly, so soon-1 is non-interactive (aria-disabled=true confirmed in DOM)."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "N/A (not tested per request)", "frontend": "100%" },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Home screen at / renders platform-home with 3 AI-generated hero images (domino, cards, mafia JPG, all ~750-925KB) loaded via require(). naturalWidth 1376x768 confirms Metro successfully bundled and served the binaries. Navigation to /games/{domino,cards,mafia} works. soon-1 card is aria-disabled and does not navigate. Stat card stat-games shows value 3. Featured مميزة badge overlay appears on mafia card (top-left). Only deprecation console warnings (pointerEvents, shadow*, textShadow*, useNativeDriver fallback) — none are blocking.",
+  "rca_of_issue": "No blocking issues. All requested visual + navigation + element checks passed on 414x900 viewport after 12s load wait."
+}
