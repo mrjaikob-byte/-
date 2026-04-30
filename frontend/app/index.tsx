@@ -103,7 +103,6 @@ function FloatingBlob({ color, size, startX, startY, duration, delay = 0 }: {
 
   return (
     <Animated.View
-      pointerEvents="none"
       style={[
         styles.blob,
         {
@@ -113,6 +112,7 @@ function FloatingBlob({ color, size, startX, startY, duration, delay = 0 }: {
           backgroundColor: color,
           top: startY,
           left: startX,
+          pointerEvents: "none",
           transform: [
             { translateX: driftX.interpolate({ inputRange: [0, 1], outputRange: [0, 40] }) },
             { translateY: driftY.interpolate({ inputRange: [0, 1], outputRange: [0, -50] }) },
@@ -296,10 +296,10 @@ export default function Home() {
             <View style={styles.titleWrap}>
               <Text style={styles.title}>اختر لعبتك</Text>
               <Animated.View
-                pointerEvents="none"
                 style={[
                   styles.titleShimmer,
                   {
+                    pointerEvents: "none",
                     transform: [
                       {
                         translateX: titleShimmer.interpolate({
