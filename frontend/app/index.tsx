@@ -66,6 +66,18 @@ const GAMES: Game[] = [
     badge: "مميزة",
   },
   {
+    id: "wordle",
+    name: "تخمين الكلمة",
+    description: "1000 مرحلة • رحلة عربية ممتعة • خريطة مغامرات",
+    icon: "text",
+    accent: "#10B981",
+    accent2: "#7C3AED",
+    route: "/games/wordle",
+    available: true,
+    image: require("../assets/images/wordle.jpg"),
+    badge: "جديد",
+  },
+  {
     id: "soon-1",
     name: "قريباً",
     description: "ألعاب جديدة في الطريق",

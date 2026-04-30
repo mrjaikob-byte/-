@@ -101,3 +101,47 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "بناء منصة ألعاب عربية تحتوي على عدة ألعاب مصغّرة، بما في ذلك لعبة تخمين الكلمة (Wordle عربي) بـ 1000 مرحلة وخريطة تقدّم بنمط Candy Crush."
+
+frontend:
+  - task: "Arabic Wordle Game - Full gameplay, map, keyboard, storage"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/games/wordle-play.tsx, /app/frontend/app/games/wordle.tsx, /app/frontend/src/wordle/*"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Built complete Arabic Wordle experience: 126 curated 4-letter words + 5/6-letter pools, deterministic level→word mapping (1000 levels), progressive difficulty. Core engine handles Arabic normalization (alef variants, hamza, diacritics) and classic wordle evaluation. 7 themed chapters (Garden/Desert/Sea/Mountain/Forest/Castle/Space) with custom colors and emoji. Candy-Crush style map with zigzag sin-wave path, stars, locked/unlocked states, pulsing current-level indicator. Play screen features: Arabic keyboard with 3 rows (RTL), 6-attempt grid with flip animations, shake on invalid, toasts, 2 hints per level that reveal random correct letter, win/loss modal with star earning (3/2/1 based on attempts) and confetti animation. AsyncStorage persistence: currentLevel, completed (with stars/attempts), totalStars, totalWins. Full flow tested via automated screenshots: typing, submitting, win modal with 3 stars, level advance to next level, map showing earned stars and chapter progress. AI-generated cover image using Gemini nano-banana."
+
+  - task: "Main Platform Home - Wordle card added"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/index.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Added Wordle game card with 'جديد' badge, AI-generated cover image (floating Arabic calligraphy tiles with golden sparkles), emerald/purple gradient accents. Game count updated to 4 available games."
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 15
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Arabic Wordle Game - Full gameplay, map, keyboard, storage"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: "4th game (Arabic Wordle) implemented end-to-end: map screen (Candy Crush zigzag), play screen (keyboard+grid+hints+animations), persistence (AsyncStorage), and home-screen card with AI cover. Verified manually via screenshots: game logic correct (evaluateGuess passes, hint reveals correct letter, win/loss modal works, level progression works, state persists in localStorage). Ready for optional user testing or further enhancements."

@@ -17,6 +17,8 @@ export default function RootLayout() {
         <Stack.Screen name="games/domino" />
         <Stack.Screen name="games/cards" />
         <Stack.Screen name="games/mafia" />
+        <Stack.Screen name="games/wordle" />
+        <Stack.Screen name="games/wordle-play" />
       </Stack>
     </SafeAreaProvider>
   );
