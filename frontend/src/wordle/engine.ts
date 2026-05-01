@@ -1,6 +1,6 @@
 // Core gameplay helpers: normalization, guess evaluation, keyboard layout.
 
-import { WORDS_4, WORDS_5, WORDS_6 } from "./words";
+import { DICT_WORDS_4, DICT_WORDS_5, DICT_WORDS_6 } from "./words";
 
 export type TileState = "correct" | "present" | "absent" | "empty" | "filled";
 
@@ -96,10 +96,11 @@ export function starsForAttempts(attemptsUsed: number, maxAttempts: number): num
   return 0;
 }
 
-// Build dictionary lookups (normalized) for fast O(1) validation
-const DICT_4 = new Set(WORDS_4.map((w) => normalizeArabic(w)));
-const DICT_5 = new Set(WORDS_5.map((w) => normalizeArabic(w)));
-const DICT_6 = new Set(WORDS_6.map((w) => normalizeArabic(w)));
+// Build dictionary lookups (normalized) for fast O(1) validation.
+// Uses the EXTENDED dictionary (answers + common Arabic guesses).
+const DICT_4 = new Set(DICT_WORDS_4.map((w) => normalizeArabic(w)));
+const DICT_5 = new Set(DICT_WORDS_5.map((w) => normalizeArabic(w)));
+const DICT_6 = new Set(DICT_WORDS_6.map((w) => normalizeArabic(w)));
 
 export function isValidWord(word: string, length: number): boolean {
   const norm = normalizeArabic(word);

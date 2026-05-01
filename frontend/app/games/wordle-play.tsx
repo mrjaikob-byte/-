@@ -25,7 +25,7 @@ import {
   starsForAttempts,
   toChars,
 } from "../../src/wordle/engine";
-import { getWordForLevel, getWordLength } from "../../src/wordle/words";
+import { getWordLength, pickRandomWordForLevel } from "../../src/wordle/words";
 import { getChapter } from "../../src/wordle/chapters";
 import { recordWin } from "../../src/wordle/storage";
 import { WorldBackground } from "../../src/wordle/WorldBackground";
@@ -234,7 +234,8 @@ export default function WordlePlay() {
   const level = Math.max(1, Math.min(1000, parseInt(levelParam || "1", 10) || 1));
   const chapter = getChapter(level);
   const wordLen = getWordLength(level);
-  const target = useMemo(() => getWordForLevel(level), [level]);
+  // Target word is randomly picked per session/retry
+  const [target, setTarget] = useState<string>(() => pickRandomWordForLevel(level));
   const targetChars = useMemo(() => toChars(target), [target]);
 
   const [rows, setRows] = useState<Row[]>([]);
@@ -247,8 +248,10 @@ export default function WordlePlay() {
   const [hintsUsed, setHintsUsed] = useState<number>(0);
   const shakeX = useRef(new Animated.Value(0)).current;
 
-  // Reset game state whenever level changes (important for router.replace to another level)
+  // Reset game state whenever level changes (important for router.replace to another level).
+  // Also picks a fresh random word for the new level.
   useEffect(() => {
+    setTarget(pickRandomWordForLevel(level));
     setRows([]);
     setCurrentGuess("");
     setRevealingIndex(-1);
@@ -528,6 +531,8 @@ export default function WordlePlay() {
               }
             }}
             onRetry={() => {
+              // Pick a new random word DIFFERENT from the previous target
+              setTarget(pickRandomWordForLevel(level, target));
               setRows([]);
               setCurrentGuess("");
               setLocked(false);
