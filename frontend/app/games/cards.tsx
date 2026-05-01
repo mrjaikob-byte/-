@@ -554,9 +554,9 @@ export default function CardsCalculator() {
         {/* Round-complete banner */}
         {bannerVisible && (
           <Animated.View
-            pointerEvents="none"
             style={[
               styles.banner,
+              { pointerEvents: "none" as const },
               {
                 opacity: bannerAnim,
                 transform: [
@@ -799,9 +799,7 @@ function PlayerSlot(props: {
           styles.slot,
           {
             borderColor: color,
-            shadowColor: color,
-            shadowOpacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0.15, 0.6] }),
-            shadowRadius: glow.interpolate({ inputRange: [0, 1], outputRange: [4, 14] }),
+            boxShadow: `0px 0px 14px ${color}66`,
           },
         ]}
       >
@@ -1003,7 +1001,7 @@ const styles = StyleSheet.create({
     flexDirection: "row-reverse", alignItems: "center", gap: 8,
     backgroundColor: "#FBBF24",
     paddingHorizontal: 16, paddingVertical: 10, borderRadius: 100,
-    shadowColor: "#FBBF24", shadowOpacity: 0.5, shadowRadius: 12,
+    boxShadow: "0px 0px 12px rgba(251, 191, 36, 0.5)",
     elevation: 8,
   },
   bannerText: { color: "#0B1020", fontWeight: "900", fontSize: 13 },

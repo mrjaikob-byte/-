@@ -178,8 +178,8 @@ function FloatingItem({ item }: { item: Item }) {
 
   return (
     <Animated.View
-      pointerEvents="none"
       style={{
+        pointerEvents: "none",
         position: "absolute",
         left: item.x,
         opacity: op,
@@ -194,7 +194,7 @@ function FloatingItem({ item }: { item: Item }) {
 export function WorldBackground({ chapter, height }: { chapter: Chapter; height: number }) {
   const items = useMemo(() => buildItems(chapter, height), [chapter.id, height]);
   return (
-    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { overflow: "hidden" }]}>
+    <View style={[StyleSheet.absoluteFill, { overflow: "hidden", pointerEvents: "none" }]}>
       {items.map((it) => (
         <FloatingItem key={it.id} item={it} />
       ))}

@@ -70,10 +70,10 @@ function LevelBubble({
       {/* Pulse ring */}
       {current && (
         <Animated.View
-          pointerEvents="none"
           style={[
             styles.pulseRing,
             {
+              pointerEvents: "none",
               borderColor: chapter.color2,
               opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 0] }),
               transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.7] }) }],
@@ -202,7 +202,7 @@ function ChapterSection({
   return (
     <View style={[styles.chapter, { backgroundColor: chapter.bg }]}>
       {/* Animated world background */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <View style={[StyleSheet.absoluteFill, { pointerEvents: "none" }]}>
         <WorldBackground chapter={chapter} height={sectionHeight + 80} />
       </View>
 

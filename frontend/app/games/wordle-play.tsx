@@ -219,8 +219,7 @@ function Toast({ message, visible }: { message: string; visible: boolean }) {
   }, [visible, op, ty, scale]);
   return (
     <Animated.View
-      pointerEvents="none"
-      style={[styles.toast, { opacity: op, transform: [{ translateY: ty }, { scale }] }]}
+      style={[styles.toast, { pointerEvents: "none" as const, opacity: op, transform: [{ translateY: ty }, { scale }] }]}
     >
       <Text style={styles.toastText}>{message}</Text>
     </Animated.View>

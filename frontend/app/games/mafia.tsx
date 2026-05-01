@@ -966,8 +966,8 @@ function IntroScreen({ onStart, onBack }: { onStart: () => void; onBack: () => v
       {/* Flashes */}
       {flashes.map((f, i) => (
         <Animated.View key={i}
-          pointerEvents="none"
           style={[styles.gunshotFlash, {
+            pointerEvents: "none",
             opacity: f,
             top: i === 0 ? "20%" : i === 1 ? "55%" : "75%",
             left: i % 2 === 0 ? "10%" : "60%",
@@ -1846,12 +1846,12 @@ const styles = StyleSheet.create({
   gunshotFlash: {
     position: "absolute", width: 140, height: 140, borderRadius: 70,
     backgroundColor: "#FEF3C7",
-    shadowColor: "#FBBF24", shadowOpacity: 0.9, shadowRadius: 30,
+    boxShadow: "0px 0px 30px rgba(251, 191, 36, 0.9)",
   },
   introEmoji: { fontSize: 80, marginBottom: 8 },
   introTitle: {
     color: "#fff", fontSize: 56, fontWeight: "900",
-    textShadowColor: "#DC2626", textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 12,
+    textShadow: "0px 0px 12px #DC2626",
   },
   introBloodLine: {
     width: 120, height: 3, backgroundColor: "#DC2626",
@@ -1866,7 +1866,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#DC2626",
     paddingVertical: 16, paddingHorizontal: 36,
     borderRadius: 100, marginTop: 36,
-    shadowColor: "#DC2626", shadowOpacity: 0.6, shadowRadius: 18,
+    boxShadow: "0px 0px 18px rgba(220, 38, 38, 0.6)",
     elevation: 10,
   },
   introBtnText: { color: "#fff", fontSize: 18, fontWeight: "900" },

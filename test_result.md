@@ -151,3 +151,5 @@ test_plan:
 agent_communication:
   - agent: "main"
     message: "4th game (Arabic Wordle) implemented end-to-end: map screen (Candy Crush zigzag), play screen (keyboard+grid+hints+animations), persistence (AsyncStorage), and home-screen card with AI cover. Verified manually via screenshots: game logic correct (evaluateGuess passes, hint reveals correct letter, win/loss modal works, level progression works, state persists in localStorage). Ready for optional user testing or further enhancements."
+  - agent: "main"
+    message: "Cleanup pass: eliminated ALL React Native deprecation warnings. Migrated shadow* → boxShadow in cards.tsx (glow slot + banner) and mafia.tsx (gunshot flash, intro title textShadow*, intro button). Moved all `pointerEvents=\"none\"` props INTO the style object across cards.tsx, mafia.tsx, wordle.tsx, wordle-play.tsx, and WorldBackground.tsx (6 locations). Verified via supervisor logs: expo.err.log is now empty. Home + all 4 games (domino, cards, mafia, wordle map) load cleanly with zero warnings. App is production-ready."
