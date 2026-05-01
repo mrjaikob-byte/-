@@ -1,6 +1,8 @@
 // Core gameplay helpers: normalization, guess evaluation, keyboard layout.
 
 import { DICT_WORDS_4, DICT_WORDS_5, DICT_WORDS_6 } from "./words";
+// Note: imports kept for potential future use (soft-warnings etc.).
+void DICT_WORDS_4; void DICT_WORDS_5; void DICT_WORDS_6;
 
 export type TileState = "correct" | "present" | "absent" | "empty" | "filled";
 
@@ -96,18 +98,21 @@ export function starsForAttempts(attemptsUsed: number, maxAttempts: number): num
   return 0;
 }
 
-// Build dictionary lookups (normalized) for fast O(1) validation.
-// Uses the EXTENDED dictionary (answers + common Arabic guesses).
-const DICT_4 = new Set(DICT_WORDS_4.map((w) => normalizeArabic(w)));
-const DICT_5 = new Set(DICT_WORDS_5.map((w) => normalizeArabic(w)));
-const DICT_6 = new Set(DICT_WORDS_6.map((w) => normalizeArabic(w)));
+// Build allowed-letter set for input validation.
+const ALLOWED_LETTERS = new Set(Array.from("ابتثجحخدذرزسشصضطظعغفقكلمنهوية"));
 
+/**
+ * Validate a guess. We accept ANY word composed of allowed Arabic letters
+ * with the correct length. This matches the behavior of popular Arabic Wordle
+ * games and avoids rejecting legitimate words that happen to be missing from
+ * a hand-curated dictionary.
+ */
 export function isValidWord(word: string, length: number): boolean {
   const norm = normalizeArabic(word);
   const chars = Array.from(norm);
   if (chars.length !== length) return false;
-  if (length === 4) return DICT_4.has(norm);
-  if (length === 5) return DICT_5.has(norm);
-  if (length === 6) return DICT_6.has(norm);
-  return false;
+  for (const c of chars) {
+    if (!ALLOWED_LETTERS.has(c)) return false;
+  }
+  return true;
 }
