@@ -1,8 +1,11 @@
 // Arabic word lists for the Wordle-style guess game.
 // Each word uses ONLY these base letters (after normalization):
-// ا ب ت ث ج ح خ د ذ ر ز س ش ص ض ط ظ ع غ ف ق ك ل م ن ه و ي ة
+// ا ب ت ث ج ح خ د ذ ر ز س ش ص ض ط ظ ع غ ف ق ك ل م ن ه و ي ة ء
 // Variants like أ إ آ ى ؤ ئ are normalized away in engine.ts before lookup.
 // Character count is measured via Array.from(word).length.
+
+import { normalizeArabic } from "./engine";
+import { getTieredPool } from "./tiers";
 
 // Curated answer pools (used as level targets). Verified common words.
 const rawAnswers4: string[] = [
@@ -170,9 +173,21 @@ export const DICT_WORDS_6 = (() => {
 })();
 
 export function getWordPool(level: number): string[] {
-  if (level <= 250) return WORDS_4;
-  if (level <= 700) return WORDS_5;
-  return WORDS_6;
+  // Progressive difficulty tiers.
+  const tier = getTieredPool(level);
+  // Filter to only correctly-sized words after normalization (defensive).
+  const target = getWordLength(level);
+  const filtered = tier.filter((w: string) => {
+    const n = normalizeArabic(w);
+    return Array.from(n).length === target;
+  });
+  // Fallback to curated WORDS_N if tier somehow empty
+  if (filtered.length === 0) {
+    if (target === 4) return WORDS_4;
+    if (target === 5) return WORDS_5;
+    return WORDS_6;
+  }
+  return filtered;
 }
 
 export function getWordLength(level: number): number {

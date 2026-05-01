@@ -61,7 +61,7 @@ async def get_status_checks():
 # ========================
 
 ARABIC_LETTERS = set("ابتثجحخدذرزسشصضطظعغفقكلمنهويءأإآؤئىةّ")
-ALLOWED_BASE = set("ابتثجحخدذرزسشصضطظعغفقكلمنهوية")
+ALLOWED_BASE = set("ابتثجحخدذرزسشصضطظعغفقكلمنهويةء")
 
 # In-memory dictionary loaded at startup: {4: set(...), 5: set(...), 6: set(...)}
 ARABIC_DICT: Dict[int, Set[str]] = {4: set(), 5: set(), 6: set()}
@@ -79,9 +79,12 @@ class ValidateWordResponse(BaseModel):
 
 def _normalize_ar(w: str) -> str:
     """Mirror the frontend's normalizeArabic function exactly.
-    Treats ة and ه as equivalent (common in casual Arabic typing)."""
+    - Strips diacritics and tatweel
+    - Unifies alef variants (أ إ آ ٱ → ا)
+    - ى → ي, ؤ → و, ئ → ي
+    - KEEPS standalone ء (it's a valid letter in words like سماء, ضوء, بناء)
+    - Treats ة ≡ ه (common in casual Arabic typing)"""
     w = re.sub(r"[\u064B-\u0652\u0670\u0640]", "", w)  # harakat + tatweel
-    w = w.replace("ء", "")  # standalone hamza
     w = (w
          .replace("أ", "ا").replace("إ", "ا").replace("آ", "ا").replace("ٱ", "ا")
          .replace("ى", "ي").replace("ئ", "ي").replace("ؤ", "و")

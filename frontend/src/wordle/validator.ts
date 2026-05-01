@@ -3,11 +3,11 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { normalizeArabic } from "./engine";
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || "";
-// v3: ة ↔ ه equivalence in normalization
-const CACHE_KEY = "wordle:dict-cache-v3";
+// v4: ء now allowed + ة ↔ ه equivalence
+const CACHE_KEY = "wordle:dict-cache-v4";
 
 // Allowed Arabic base letters (must match keyboard).
-const ALLOWED = new Set(Array.from("ابتثجحخدذرزسشصضطظعغفقكلمنهوية"));
+const ALLOWED = new Set(Array.from("ابتثجحخدذرزسشصضطظعغفقكلمنهويةء"));
 
 type CacheMap = Record<string, boolean>;
 let memCache: CacheMap | null = null;

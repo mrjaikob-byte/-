@@ -18,10 +18,10 @@ import * as Haptics from "expo-haptics";
 import {
   KB_ROWS,
   TileState,
+  computeStars,
   evaluateGuess,
   mergeKeyStates,
   normalizeArabic,
-  starsForAttempts,
   toChars,
 } from "../../src/wordle/engine";
 import { getWordLength, pickRandomWordForLevel } from "../../src/wordle/words";
@@ -29,6 +29,7 @@ import { getChapter } from "../../src/wordle/chapters";
 import { recordWin } from "../../src/wordle/storage";
 import { WorldBackground } from "../../src/wordle/WorldBackground";
 import { validateWordStrict } from "../../src/wordle/validator";
+import { getTierLabel } from "../../src/wordle/tiers";
 
 const MAX_ATTEMPTS = 6;
 const { width: SCREEN_W } = Dimensions.get("window");
@@ -315,7 +316,11 @@ export default function WordlePlay() {
       setLocked(true);
       if (won) {
         const attempts = finalRows.length;
-        const s = starsForAttempts(attempts, MAX_ATTEMPTS);
+        // New star rules:
+        //  - Solved in 1-5 attempts: 3 stars
+        //  - Solved on attempt 6 (final): 2 stars
+        //  - If any hint used: -1 star (minimum 1)
+        const s = computeStars(attempts, MAX_ATTEMPTS, hintsUsed, true);
         setStars(s);
         await recordWin(level, attempts, s, target, 1000);
         try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch {}
@@ -324,7 +329,7 @@ export default function WordlePlay() {
       }
       setTimeout(() => setModalType(won ? "win" : "loss"), 900);
     },
-    [level, target],
+    [level, target, hintsUsed],
   );
 
   const handleEnter = useCallback(async () => {
@@ -426,6 +431,9 @@ export default function WordlePlay() {
               <Text style={[styles.chapterName, { color: chapter.color2 }]}>{chapter.name}</Text>
             </View>
             <Text style={styles.levelBig}>المرحلة {level}</Text>
+            <View style={[styles.tierPill, { backgroundColor: getTierLabel(level).color + "26", borderColor: getTierLabel(level).color }]}>
+              <Text style={[styles.tierText, { color: getTierLabel(level).color }]}>{getTierLabel(level).label}</Text>
+            </View>
           </View>
           <Pressable
             testID="hint-btn"
@@ -721,6 +729,14 @@ const styles = StyleSheet.create({
   },
   chapterName: { fontSize: 11, fontWeight: "900" },
   levelBig: { color: "#fff", fontSize: 18, fontWeight: "900", letterSpacing: -0.3 },
+  tierPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+    borderRadius: 100,
+    borderWidth: 1,
+    marginTop: 2,
+  },
+  tierText: { fontSize: 10, fontWeight: "900" },
   attemptsRow: {
     flexDirection: "row-reverse",
     alignSelf: "center",

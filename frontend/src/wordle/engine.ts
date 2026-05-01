@@ -1,16 +1,12 @@
 // Core gameplay helpers: normalization, guess evaluation, keyboard layout.
 
-import { DICT_WORDS_4, DICT_WORDS_5, DICT_WORDS_6 } from "./words";
-// Note: imports kept for potential future use (soft-warnings etc.).
-void DICT_WORDS_4; void DICT_WORDS_5; void DICT_WORDS_6;
-
 export type TileState = "correct" | "present" | "absent" | "empty" | "filled";
 
 // Normalize Arabic input so player has some flexibility:
 // - Variations of alef (أ إ آ ٱ) -> ا
 // - Alef maqsura ى -> ي
 // - Hamza on ya/waw (ئ ؤ) -> ي / و
-// - Standalone hamza ء removed
+// - Standalone hamza ء is KEPT (many real words end with ء like سماء, ضوء, بناء)
 // - Ta marbuta ة -> ه (treated as equivalent in casual Arabic typing)
 // - Diacritics stripped
 export function normalizeArabic(s: string): string {
@@ -22,7 +18,6 @@ export function normalizeArabic(s: string): string {
     .replace(/\u0649/g, "\u064A")          // ى -> ي
     .replace(/\u0624/g, "\u0648")          // ؤ -> و
     .replace(/\u0626/g, "\u064A")          // ئ -> ي
-    .replace(/\u0621/g, "")                 // standalone hamza
     .replace(/\u0629/g, "\u0647")          // ة -> ه
     .trim();
 }
@@ -86,21 +81,36 @@ export function mergeKeyStates(
 export const KB_ROWS: string[][] = [
   ["ض","ص","ث","ق","ف","غ","ع","ه","خ","ح","ج"],
   ["ش","س","ي","ب","ل","ا","ت","ن","م","ك"],
-  ["ذ","د","ظ","ط","ز","و","ر","ة"],
+  ["ذ","د","ظ","ط","ز","و","ر","ة","ء"],
 ];
 
+/**
+ * Compute star rating:
+ * - Solved on attempts 1–5: 3 stars
+ * - Solved on attempt 6 (last chance): 2 stars
+ * - Using any hint subtracts 1 star (minimum 1 star if solved)
+ * - Not solved: 0 stars
+ */
+export function computeStars(
+  attemptsUsed: number,
+  maxAttempts: number,
+  hintsUsed: number,
+  solved: boolean,
+): number {
+  if (!solved) return 0;
+  let base = attemptsUsed >= maxAttempts ? 2 : 3;
+  if (hintsUsed > 0) base -= 1;
+  if (base < 1) base = 1;
+  return base;
+}
+
+// Legacy helper kept for compatibility (no hints considered).
 export function starsForAttempts(attemptsUsed: number, maxAttempts: number): number {
-  // 3 stars: first 2 attempts
-  // 2 stars: 3-4 attempts
-  // 1 star : 5-6 attempts
-  if (attemptsUsed <= 2) return 3;
-  if (attemptsUsed <= 4) return 2;
-  if (attemptsUsed <= maxAttempts) return 1;
-  return 0;
+  return computeStars(attemptsUsed, maxAttempts, 0, true);
 }
 
 // Build allowed-letter set for input validation.
-const ALLOWED_LETTERS = new Set(Array.from("ابتثجحخدذرزسشصضطظعغفقكلمنهوية"));
+const ALLOWED_LETTERS = new Set(Array.from("ابتثجحخدذرزسشصضطظعغفقكلمنهويةء"));
 
 /**
  * Quick local check: word has the right length and uses only allowed Arabic letters.
