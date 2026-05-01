@@ -102,10 +102,8 @@ export function starsForAttempts(attemptsUsed: number, maxAttempts: number): num
 const ALLOWED_LETTERS = new Set(Array.from("ابتثجحخدذرزسشصضطظعغفقكلمنهوية"));
 
 /**
- * Validate a guess. We accept ANY word composed of allowed Arabic letters
- * with the correct length. This matches the behavior of popular Arabic Wordle
- * games and avoids rejecting legitimate words that happen to be missing from
- * a hand-curated dictionary.
+ * Quick local check: word has the right length and uses only allowed Arabic letters.
+ * Strict dictionary validation happens via the backend (validator.ts).
  */
 export function isValidWord(word: string, length: number): boolean {
   const norm = normalizeArabic(word);
