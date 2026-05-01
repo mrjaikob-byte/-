@@ -19,7 +19,6 @@ import {
   KB_ROWS,
   TileState,
   evaluateGuess,
-  isValidWord,
   mergeKeyStates,
   normalizeArabic,
   starsForAttempts,
@@ -29,6 +28,7 @@ import { getWordLength, pickRandomWordForLevel } from "../../src/wordle/words";
 import { getChapter } from "../../src/wordle/chapters";
 import { recordWin } from "../../src/wordle/storage";
 import { WorldBackground } from "../../src/wordle/WorldBackground";
+import { validateWordStrict } from "../../src/wordle/validator";
 
 const MAX_ATTEMPTS = 6;
 const { width: SCREEN_W } = Dimensions.get("window");
@@ -245,6 +245,7 @@ export default function WordlePlay() {
   const [modalType, setModalType] = useState<"win" | "loss" | null>(null);
   const [stars, setStars] = useState<number>(0);
   const [hintsUsed, setHintsUsed] = useState<number>(0);
+  const [validating, setValidating] = useState<boolean>(false);
   const shakeX = useRef(new Animated.Value(0)).current;
 
   // Reset game state whenever level changes (important for router.replace to another level).
@@ -326,20 +327,37 @@ export default function WordlePlay() {
     [level, target],
   );
 
-  const handleEnter = useCallback(() => {
-    if (locked) return;
+  const handleEnter = useCallback(async () => {
+    if (locked || validating) return;
     if (currentChars.length !== wordLen) {
       showToast(`الكلمة يجب أن تكون ${wordLen} أحرف`, 1800);
       shake();
       return;
     }
     const guess = currentChars.join("");
-    // Validate against dictionary - reject words not in pool
-    if (!isValidWord(guess, wordLen)) {
-      showToast("الكلمة غير موجودة في القاموس", 2200);
+
+    // Strict validation: length + Arabic-only + LLM dictionary check (cached).
+    setValidating(true);
+    showToast("جاري التحقق من الكلمة…", 8000);
+    const result = await validateWordStrict(guess, wordLen);
+    setValidating(false);
+    // Hide the "checking" toast immediately
+    setToast({ msg: "", visible: false });
+
+    if (!result.valid) {
+      const msg =
+        result.source === "length"
+          ? `الكلمة يجب أن تكون ${wordLen} أحرف`
+          : result.source === "chars"
+          ? "يجب استخدام أحرف عربية فقط"
+          : result.source === "garbage"
+          ? "هذه ليست كلمة عربية"
+          : "الكلمة غير موجودة في القاموس العربي";
+      showToast(msg, 2200);
       shake();
       return;
     }
+
     const states = evaluateGuess(guess, target);
     const newRow: Row = { guess, states };
     const newRows = [...rows, newRow];
@@ -354,7 +372,7 @@ export default function WordlePlay() {
       // Wait for flip animation to complete before modal
       setTimeout(() => finishGame(won, newRows), 180 * wordLen + 300);
     }
-  }, [locked, currentChars, wordLen, target, rows, showToast, shake, finishGame]);
+  }, [locked, validating, currentChars, wordLen, target, rows, showToast, shake, finishGame]);
 
   const handleHint = useCallback(() => {
     if (!canHint) return;
@@ -504,7 +522,7 @@ export default function WordlePlay() {
                   onPress={handleEnter}
                   wide
                   accent="#2563EB"
-                  disabled={locked}
+                  disabled={locked || validating}
                 />
               )}
             </View>
