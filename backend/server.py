@@ -78,12 +78,14 @@ class ValidateWordResponse(BaseModel):
 
 
 def _normalize_ar(w: str) -> str:
-    """Mirror the frontend's normalizeArabic function exactly."""
+    """Mirror the frontend's normalizeArabic function exactly.
+    Treats ة and ه as equivalent (common in casual Arabic typing)."""
     w = re.sub(r"[\u064B-\u0652\u0670\u0640]", "", w)  # harakat + tatweel
     w = w.replace("ء", "")  # standalone hamza
     w = (w
          .replace("أ", "ا").replace("إ", "ا").replace("آ", "ا").replace("ٱ", "ا")
-         .replace("ى", "ي").replace("ئ", "ي").replace("ؤ", "و"))
+         .replace("ى", "ي").replace("ئ", "ي").replace("ؤ", "و")
+         .replace("ة", "ه"))  # ة ↔ ه equivalence
     return w.strip()
 
 
@@ -92,13 +94,18 @@ def _is_pure_arabic(w: str) -> bool:
 
 
 def _load_dictionary():
-    """Load Hunspell-derived Arabic dictionary + extras into memory."""
+    """Load Hunspell-derived Arabic dictionary + extras into memory.
+    All words are stored AFTER normalization (ة → ه, etc.) so lookups
+    are robust against ة/ه typing variations."""
     dict_path = ROOT_DIR / "wordle_arabic_dict.json"
     if dict_path.exists():
         try:
             data = json.loads(dict_path.read_text(encoding="utf-8"))
             for k in ("4", "5", "6"):
-                ARABIC_DICT[int(k)] = set(data.get(k, []))
+                for w in data.get(k, []):
+                    norm = _normalize_ar(w)
+                    if len(norm) == int(k) and _is_pure_arabic(norm):
+                        ARABIC_DICT[int(k)].add(norm)
             logger.info(
                 "Arabic dict loaded: 4=%d 5=%d 6=%d",
                 len(ARABIC_DICT[4]), len(ARABIC_DICT[5]), len(ARABIC_DICT[6]),

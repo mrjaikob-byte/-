@@ -9,9 +9,9 @@ export type TileState = "correct" | "present" | "absent" | "empty" | "filled";
 // Normalize Arabic input so player has some flexibility:
 // - Variations of alef (أ إ آ ٱ) -> ا
 // - Alef maqsura ى -> ي
-// - Ta marbuta ة is kept distinct (player must type it)
 // - Hamza on ya/waw (ئ ؤ) -> ي / و
 // - Standalone hamza ء removed
+// - Ta marbuta ة -> ه (treated as equivalent in casual Arabic typing)
 // - Diacritics stripped
 export function normalizeArabic(s: string): string {
   if (!s) return "";
@@ -23,6 +23,7 @@ export function normalizeArabic(s: string): string {
     .replace(/\u0624/g, "\u0648")          // ؤ -> و
     .replace(/\u0626/g, "\u064A")          // ئ -> ي
     .replace(/\u0621/g, "")                 // standalone hamza
+    .replace(/\u0629/g, "\u0647")          // ة -> ه
     .trim();
 }
 
