@@ -19,6 +19,7 @@ import {
   KB_ROWS,
   TileState,
   evaluateGuess,
+  isValidWord,
   mergeKeyStates,
   normalizeArabic,
   starsForAttempts,
@@ -27,6 +28,7 @@ import {
 import { getWordForLevel, getWordLength } from "../../src/wordle/words";
 import { getChapter } from "../../src/wordle/chapters";
 import { recordWin } from "../../src/wordle/storage";
+import { WorldBackground } from "../../src/wordle/WorldBackground";
 
 const MAX_ATTEMPTS = 6;
 const { width: SCREEN_W } = Dimensions.get("window");
@@ -103,27 +105,30 @@ function tileStyleFor(state: TileState, hasChar: string) {
   switch (state) {
     case "correct":
       return {
-        box: { backgroundColor: "#16A34A", borderColor: "#16A34A" },
+        box: { backgroundColor: "#16A34A", borderColor: "#22C55E" },
         text: { color: "#fff" },
       };
     case "present":
       return {
-        box: { backgroundColor: "#CA8A04", borderColor: "#CA8A04" },
+        box: { backgroundColor: "#CA8A04", borderColor: "#EAB308" },
         text: { color: "#fff" },
       };
     case "absent":
       return {
-        box: { backgroundColor: "#1E293B", borderColor: "#1E293B" },
-        text: { color: "#64748B" },
+        box: { backgroundColor: "#1E293B", borderColor: "#334155" },
+        text: { color: "#94A3B8" },
       };
     case "filled":
       return {
-        box: { backgroundColor: "transparent", borderColor: "#475569" },
+        box: { backgroundColor: "rgba(255,255,255,0.08)", borderColor: "#94A3B8" },
         text: { color: "#fff" },
       };
     default:
       return {
-        box: { backgroundColor: "transparent", borderColor: hasChar ? "#475569" : "#1F2937" },
+        box: {
+          backgroundColor: "rgba(255,255,255,0.04)",
+          borderColor: hasChar ? "#94A3B8" : "rgba(148,163,184,0.45)",
+        },
         text: { color: "#fff" },
       };
   }
@@ -196,19 +201,27 @@ function Key({
 // ================== Toast ==================
 function Toast({ message, visible }: { message: string; visible: boolean }) {
   const op = useRef(new Animated.Value(0)).current;
-  const ty = useRef(new Animated.Value(-8)).current;
+  const ty = useRef(new Animated.Value(-16)).current;
+  const scale = useRef(new Animated.Value(0.85)).current;
   useEffect(() => {
     if (visible) {
       Animated.parallel([
-        Animated.timing(op, { toValue: 1, duration: 180, useNativeDriver: true }),
-        Animated.spring(ty, { toValue: 0, useNativeDriver: true, friction: 6 }),
+        Animated.timing(op, { toValue: 1, duration: 220, useNativeDriver: true }),
+        Animated.spring(ty, { toValue: 0, useNativeDriver: true, friction: 7 }),
+        Animated.spring(scale, { toValue: 1, useNativeDriver: true, friction: 7 }),
       ]).start();
     } else {
-      Animated.timing(op, { toValue: 0, duration: 160, useNativeDriver: true }).start();
+      Animated.parallel([
+        Animated.timing(op, { toValue: 0, duration: 250, useNativeDriver: true }),
+        Animated.timing(scale, { toValue: 0.92, duration: 250, useNativeDriver: true }),
+      ]).start();
     }
-  }, [visible, op, ty]);
+  }, [visible, op, ty, scale]);
   return (
-    <Animated.View pointerEvents="none" style={[styles.toast, { opacity: op, transform: [{ translateY: ty }] }]}>
+    <Animated.View
+      pointerEvents="none"
+      style={[styles.toast, { opacity: op, transform: [{ translateY: ty }, { scale }] }]}
+    >
       <Text style={styles.toastText}>{message}</Text>
     </Animated.View>
   );
@@ -251,9 +264,9 @@ export default function WordlePlay() {
   const currentChars = useMemo(() => toChars(normalizeArabic(currentGuess)), [currentGuess]);
   const keyStates = useMemo(() => mergeKeyStates(rows), [rows]);
 
-  const showToast = useCallback((msg: string) => {
+  const showToast = useCallback((msg: string, duration: number = 1800) => {
     setToast({ msg, visible: true });
-    setTimeout(() => setToast({ msg, visible: false }), 1400);
+    setTimeout(() => setToast((t) => ({ ...t, visible: false })), duration);
   }, []);
 
   const shake = useCallback(() => {
@@ -314,11 +327,17 @@ export default function WordlePlay() {
   const handleEnter = useCallback(() => {
     if (locked) return;
     if (currentChars.length !== wordLen) {
-      showToast(`الكلمة يجب أن تكون ${wordLen} أحرف`);
+      showToast(`الكلمة يجب أن تكون ${wordLen} أحرف`, 1800);
       shake();
       return;
     }
     const guess = currentChars.join("");
+    // Validate against dictionary - reject words not in pool
+    if (!isValidWord(guess, wordLen)) {
+      showToast("الكلمة غير موجودة في القاموس", 2200);
+      shake();
+      return;
+    }
     const states = evaluateGuess(guess, target);
     const newRow: Row = { guess, states };
     const newRows = [...rows, newRow];
@@ -353,14 +372,14 @@ export default function WordlePlay() {
     const pick = candidates[Math.floor(Math.random() * candidates.length)];
     const letter = targetChars[pick];
     setHintsUsed((h) => h + 1);
-    showToast(`تلميح: الحرف رقم ${pick + 1} هو «${letter}»`);
+    showToast(`الحرف رقم ${pick + 1} هو   «${letter}»`, 3500);
     try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
   }, [canHint, rows, targetChars, showToast]);
 
-  const gridWidth = Math.min(SCREEN_W - 40, 360);
+  const gridWidth = Math.min(SCREEN_W - 32, 400);
   const tileSize = Math.min(
-    Math.floor((gridWidth - (wordLen - 1) * 8) / wordLen),
-    58,
+    Math.floor((gridWidth - (wordLen - 1) * 10) / wordLen),
+    78,
   );
 
   // Header progress
@@ -369,6 +388,8 @@ export default function WordlePlay() {
 
   return (
     <View style={[styles.root, { backgroundColor: chapter.bg }]} testID="wordle-play-root">
+      {/* Animated chapter background */}
+      <WorldBackground chapter={chapter} height={Dimensions.get("window").height} />
       <SafeAreaView style={{ flex: 1 }} edges={["top", "bottom"]}>
         {/* Header */}
         <View style={styles.header}>
@@ -459,16 +480,16 @@ export default function WordlePlay() {
           <Toast message={toast.msg} visible={toast.visible} />
         </View>
 
-        {/* Keyboard */}
+        {/* Keyboard - standard Arabic layout (ض top-left like iPhone) */}
         <View style={styles.kb}>
           {KB_ROWS.map((r, i) => (
             <View key={i} style={styles.kbRow}>
               {i === 2 && (
                 <Key
-                  icon="return-down-back"
-                  onPress={handleEnter}
+                  icon="backspace"
+                  onPress={handleBackspace}
                   wide
-                  accent="#2563EB"
+                  accent="#DC2626"
                   disabled={locked}
                 />
               )}
@@ -477,10 +498,10 @@ export default function WordlePlay() {
               ))}
               {i === 2 && (
                 <Key
-                  icon="backspace"
-                  onPress={handleBackspace}
+                  icon="return-down-back"
+                  onPress={handleEnter}
                   wide
-                  accent="#DC2626"
+                  accent="#2563EB"
                   disabled={locked}
                 />
               )}
@@ -686,39 +707,39 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   attemptDot: { width: 22, height: 4, borderRadius: 2 },
-  body: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
-  grid: { gap: 8, alignSelf: "center" },
-  row: { flexDirection: "row-reverse", gap: 8, justifyContent: "center" },
+  body: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  grid: { gap: 10, alignSelf: "center" },
+  row: { flexDirection: "row-reverse", gap: 10, justifyContent: "center" },
   tile: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderRadius: 10,
-    backgroundColor: "transparent",
+    borderWidth: 3,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.04)",
   },
-  tileText: { fontSize: 24, fontWeight: "900" },
-  kb: { paddingHorizontal: 4, paddingTop: 6, paddingBottom: 8, gap: 6 },
-  kbRow: { flexDirection: "row-reverse", gap: 4, justifyContent: "center" },
+  tileText: { fontSize: 30, fontWeight: "900" },
+  kb: { paddingHorizontal: 4, paddingTop: 6, paddingBottom: 8, gap: 7 },
+  kbRow: { flexDirection: "row", gap: 4, justifyContent: "center" },
   key: {
-    height: 46,
-    borderRadius: 8,
+    height: 50,
+    borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 2,
   },
-  keyText: { fontSize: 18, fontWeight: "900" },
+  keyText: { fontSize: 19, fontWeight: "900" },
   toast: {
     position: "absolute",
     top: 14,
-    backgroundColor: "rgba(2, 6, 23, 0.92)",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    backgroundColor: "rgba(2, 6, 23, 0.95)",
+    paddingHorizontal: 22,
+    paddingVertical: 14,
     borderRadius: 100,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
+    borderWidth: 1.5,
+    borderColor: "rgba(251, 191, 36, 0.55)",
   },
-  toastText: { color: "#fff", fontWeight: "800", fontSize: 13 },
+  toastText: { color: "#fff", fontWeight: "900", fontSize: 16, textAlign: "center" },
   // Modal
   modalBackdrop: {
     flex: 1,

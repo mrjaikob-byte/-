@@ -1,5 +1,7 @@
 // Core gameplay helpers: normalization, guess evaluation, keyboard layout.
 
+import { WORDS_4, WORDS_5, WORDS_6 } from "./words";
+
 export type TileState = "correct" | "present" | "absent" | "empty" | "filled";
 
 // Normalize Arabic input so player has some flexibility:
@@ -76,12 +78,12 @@ export function mergeKeyStates(
   return map;
 }
 
-// Arabic keyboard layout (3 rows, RTL visually handled by row-reverse).
-// Only base letters we use in the word list.
+// Arabic keyboard layout (iPhone-style: ض top-left, ج top-right).
+// Rendered with normal flexDirection: row, so array order = visual left-to-right.
 export const KB_ROWS: string[][] = [
   ["ض","ص","ث","ق","ف","غ","ع","ه","خ","ح","ج"],
   ["ش","س","ي","ب","ل","ا","ت","ن","م","ك"],
-  ["ة","ر","و","ز","ظ","د","ذ","ط"],
+  ["ذ","د","ظ","ط","ز","و","ر","ة"],
 ];
 
 export function starsForAttempts(attemptsUsed: number, maxAttempts: number): number {
@@ -92,4 +94,19 @@ export function starsForAttempts(attemptsUsed: number, maxAttempts: number): num
   if (attemptsUsed <= 4) return 2;
   if (attemptsUsed <= maxAttempts) return 1;
   return 0;
+}
+
+// Build dictionary lookups (normalized) for fast O(1) validation
+const DICT_4 = new Set(WORDS_4.map((w) => normalizeArabic(w)));
+const DICT_5 = new Set(WORDS_5.map((w) => normalizeArabic(w)));
+const DICT_6 = new Set(WORDS_6.map((w) => normalizeArabic(w)));
+
+export function isValidWord(word: string, length: number): boolean {
+  const norm = normalizeArabic(word);
+  const chars = Array.from(norm);
+  if (chars.length !== length) return false;
+  if (length === 4) return DICT_4.has(norm);
+  if (length === 5) return DICT_5.has(norm);
+  if (length === 6) return DICT_6.has(norm);
+  return false;
 }

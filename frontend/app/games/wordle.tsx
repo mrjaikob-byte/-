@@ -17,6 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { CHAPTERS, Chapter, TOTAL_LEVELS, getChapter } from "../../src/wordle/chapters";
 import { loadProgress, resetProgress, WordleProgress } from "../../src/wordle/storage";
+import { WorldBackground } from "../../src/wordle/WorldBackground";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const LEVEL_SIZE = 62;
@@ -200,6 +201,11 @@ function ChapterSection({
 
   return (
     <View style={[styles.chapter, { backgroundColor: chapter.bg }]}>
+      {/* Animated world background */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <WorldBackground chapter={chapter} height={sectionHeight + 80} />
+      </View>
+
       {/* Chapter header */}
       <View style={styles.chapterHeader}>
         <View style={[styles.chapterBanner, { backgroundColor: chapter.color + "22", borderColor: chapter.color }]}>
