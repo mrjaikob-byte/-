@@ -78,6 +78,16 @@ const GAMES: Game[] = [
     badge: "جديد",
   },
   {
+    id: "baghdad-hero",
+    name: "بطل بغداد",
+    description: "لعبة منصات ممتعة - صبي بغدادي بمصيادة",
+    icon: "game-controller",
+    accent: "#FBBF24",
+    accent2: "#DC2626",
+    route: "/games/baghdad-hero",
+    available: true,
+  },
+  {
     id: "soon-1",
     name: "قريباً",
     description: "ألعاب جديدة في الطريق",
