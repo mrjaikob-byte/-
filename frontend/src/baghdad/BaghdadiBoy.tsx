@@ -1,189 +1,173 @@
-// Iraqi Baghdadi boy character "كرّومي" - SVG-based with two outfits.
-import React from "react";
-import Svg, { Defs, G, Path, Circle, Ellipse, Rect, LinearGradient, Stop, RadialGradient } from "react-native-svg";
+// Iraqi Baghdadi boy "كرّومي" - high-detail SVG with multiple animation states.
+import React, { memo } from "react";
+import Svg, {
+  Defs,
+  G,
+  Path,
+  Circle,
+  Ellipse,
+  Rect,
+  LinearGradient,
+  Stop,
+  RadialGradient,
+} from "react-native-svg";
 
 type Props = {
   size: number;
   facing: 1 | -1;
   hasSlingshot: boolean;
-  walkPhase?: number; // 0..1 for animation
-  isJumping?: boolean;
-  isShooting?: boolean;
+  walkPhase?: number;
+  state: "idle" | "run" | "jump" | "fall" | "shoot";
 };
 
-export function BaghdadiBoy({
-  size,
-  facing,
-  hasSlingshot,
-  walkPhase = 0,
-  isJumping = false,
-  isShooting = false,
-}: Props) {
-  // Animation offsets for legs (sin wave)
-  const legSwing = isJumping ? 0 : Math.sin(walkPhase * Math.PI * 2) * 6;
-  const armSwing = isJumping ? -10 : Math.sin(walkPhase * Math.PI * 2) * 5;
-  const bob = isJumping ? -1 : Math.abs(Math.sin(walkPhase * Math.PI * 2)) * 1;
+function BaghdadiBoyComp({ size, facing, hasSlingshot, walkPhase = 0, state }: Props) {
+  const t = walkPhase * Math.PI * 2;
+  const isRun = state === "run";
+  const isShoot = state === "shoot";
+  const legSwingL = isRun ? Math.sin(t) * 14 : 0;
+  const legSwingR = isRun ? Math.sin(t + Math.PI) * 14 : 0;
+  const armSwingL = isRun ? Math.sin(t + Math.PI) * 12 : 0;
+  const armSwingR = isRun ? Math.sin(t) * 12 : 0;
+  const bodyBob = isRun ? Math.abs(Math.sin(t)) * 4 - 2 : 0;
+  const idleBob = state === "idle" ? Math.sin(walkPhase * Math.PI * 2) * 1.5 : 0;
+  const tiltAir = state === "jump" ? -3 : state === "fall" ? 3 : 0;
+  const flip = facing === -1 ? -1 : 1;
 
-  // Outfit colors
-  const tunic = hasSlingshot ? "#DC2626" : "#FAFAFA"; // red sash power-up vs white dishdasha
-  const tunicShade = hasSlingshot ? "#991B1B" : "#E5E7EB";
-  const trim = hasSlingshot ? "#FBBF24" : "#A78BFA";
-
-  const flipScale = facing === -1 ? -1 : 1;
+  const tunicMain = hasSlingshot ? "#DC2626" : "#FAFAFA";
+  const tunicShade = hasSlingshot ? "#7F1D1D" : "#D1D5DB";
+  const tunicHi = hasSlingshot ? "#FCA5A5" : "#FFFFFF";
+  const collarColor = hasSlingshot ? "#FBBF24" : "#7C3AED";
+  const collarShade = hasSlingshot ? "#B45309" : "#5B21B6";
+  const beltColor = hasSlingshot ? "#451A03" : "#92400E";
+  const skin = "#E8B98C";
+  const skinShade = "#C99A6A";
 
   return (
-    <Svg width={size} height={size} viewBox="0 0 100 100">
+    <Svg width={size} height={size * 1.2} viewBox="0 0 200 240">
       <Defs>
+        <LinearGradient id="tunic" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0" stopColor={tunicHi} />
+          <Stop offset="0.5" stopColor={tunicMain} />
+          <Stop offset="1" stopColor={tunicShade} />
+        </LinearGradient>
         <LinearGradient id="kufiyya" x1="0" y1="0" x2="0" y2="1">
           <Stop offset="0" stopColor="#FFFFFF" />
-          <Stop offset="1" stopColor="#E5E7EB" />
+          <Stop offset="1" stopColor="#D1D5DB" />
         </LinearGradient>
-        <LinearGradient id="tunicGrad" x1="0" y1="0" x2="0" y2="1">
-          <Stop offset="0" stopColor={tunic} />
-          <Stop offset="1" stopColor={tunicShade} />
+        <LinearGradient id="skinG" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0" stopColor="#F2C896" />
+          <Stop offset="1" stopColor={skin} />
         </LinearGradient>
         <RadialGradient id="cheek" cx="0.5" cy="0.5" r="0.5">
           <Stop offset="0" stopColor="#F87171" stopOpacity="0.6" />
           <Stop offset="1" stopColor="#F87171" stopOpacity="0" />
         </RadialGradient>
+        <LinearGradient id="sash" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0" stopColor="#FBBF24" />
+          <Stop offset="1" stopColor="#B45309" />
+        </LinearGradient>
+        <LinearGradient id="wood" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0" stopColor="#92400E" />
+          <Stop offset="1" stopColor="#451A03" />
+        </LinearGradient>
       </Defs>
-
-      <G transform={`translate(50, 50) scale(${flipScale}, 1) translate(-50, ${bob})`}>
-        {/* Shadow under feet */}
-        <Ellipse cx="50" cy="92" rx="16" ry="3" fill="#000" opacity="0.25" />
-
+      <G transform={`translate(100, 120) scale(${flip}, 1) translate(-100, ${bodyBob + idleBob}) rotate(${tiltAir} 100 120)`}>
+        <Ellipse cx="100" cy="222" rx="38" ry="6" fill="#000" opacity="0.25" />
         {/* LEGS */}
-        <G>
-          {/* back leg */}
-          <Rect
-            x={isJumping ? 38 : 40 - legSwing * 0.3}
-            y={isJumping ? 70 : 72}
-            width="9"
-            height={isJumping ? 14 : 16}
-            rx="3"
-            fill="#3F2D1A"
-          />
-          {/* front leg */}
-          <Rect
-            x={isJumping ? 53 : 51 + legSwing * 0.3}
-            y={isJumping ? 68 : 72}
-            width="9"
-            height={isJumping ? 14 : 16}
-            rx="3"
-            fill="#5B3A22"
-          />
-          {/* sandals */}
-          <Ellipse cx={isJumping ? 42.5 : 44.5 - legSwing * 0.3} cy={isJumping ? 86 : 89} rx="6" ry="2" fill="#1F2937" />
-          <Ellipse cx={isJumping ? 57.5 : 55.5 + legSwing * 0.3} cy={isJumping ? 84 : 89} rx="6" ry="2" fill="#1F2937" />
+        <G transform={`translate(${85 + legSwingL * 0.4}, ${165 - Math.abs(legSwingL) * 0.5})`}>
+          <Path d="M 0 0 Q 4 25 0 50 L 18 50 Q 22 25 18 0 Z" fill="#3F2A18" />
+          <Ellipse cx="9" cy="52" rx="14" ry="4" fill="#1F1B17" />
         </G>
-
-        {/* BODY (tunic / dishdasha) */}
-        <G>
-          <Path
-            d="M 32 50 Q 30 56 32 74 L 68 74 Q 70 56 68 50 Q 60 46 50 46 Q 40 46 32 50 Z"
-            fill="url(#tunicGrad)"
-            stroke={tunicShade}
-            strokeWidth="0.5"
-          />
-          {/* embroidered collar trim */}
-          <Path
-            d="M 38 48 Q 50 52 62 48"
-            stroke={trim}
-            strokeWidth="2"
-            fill="none"
-            strokeLinecap="round"
-          />
-          {/* sash diagonal (when has slingshot) */}
-          {hasSlingshot && (
-            <Path d="M 30 56 L 70 70 L 70 74 L 30 60 Z" fill="#FBBF24" stroke="#92400E" strokeWidth="0.6" />
-          )}
-          {/* belt */}
-          <Rect x="32" y="68" width="36" height="3" fill={hasSlingshot ? "#7C2D12" : "#92400E"} />
+        <G transform={`translate(${100 - legSwingR * 0.4}, ${165 - Math.abs(legSwingR) * 0.5})`}>
+          <Path d="M 0 0 Q 4 25 0 50 L 18 50 Q 22 25 18 0 Z" fill="#5B3A22" />
+          <Ellipse cx="9" cy="52" rx="14" ry="4" fill="#1F1B17" />
         </G>
-
+        {/* BODY */}
+        <Path d="M 65 110 Q 60 130 62 165 Q 80 175 100 175 Q 120 175 138 165 Q 140 130 135 110 Q 120 100 100 100 Q 80 100 65 110 Z" fill="url(#tunic)" stroke={tunicShade} strokeWidth="1.5" />
+        {!hasSlingshot && (
+          <G opacity="0.6">
+            <Path d="M 78 110 L 76 170" stroke="#D1D5DB" strokeWidth="0.8" />
+            <Path d="M 100 105 L 100 175" stroke="#D1D5DB" strokeWidth="0.8" />
+            <Path d="M 122 110 L 124 170" stroke="#D1D5DB" strokeWidth="0.8" />
+          </G>
+        )}
+        <Path d="M 80 105 L 100 122 L 120 105" stroke={collarColor} strokeWidth="3.5" fill="none" strokeLinecap="round" />
+        <Path d="M 84 107 L 100 119 L 116 107" stroke={collarShade} strokeWidth="1.5" fill="none" strokeLinecap="round" />
+        {hasSlingshot && (
+          <Path d="M 60 120 L 145 158 L 145 168 L 60 130 Z" fill="url(#sash)" stroke="#7C2D12" strokeWidth="1" />
+        )}
+        <Rect x="60" y="155" width="80" height="6" fill={beltColor} rx="1" />
+        <Rect x="95" y="153" width="10" height="10" fill="#FBBF24" stroke="#7C2D12" strokeWidth="1" />
+        <Rect x="98" y="156" width="4" height="4" fill="#7C2D12" />
         {/* ARMS */}
-        <G>
-          {/* back arm */}
-          <Rect
-            x={36}
-            y={52 + armSwing * 0.2}
-            width="6"
-            height="18"
-            rx="3"
-            fill={tunicShade}
-          />
-          {/* front arm - holds slingshot if has it */}
-          {hasSlingshot ? (
-            <G transform={`translate(${isShooting ? 60 : 58}, ${isShooting ? 50 : 54})`}>
-              <Rect x="0" y="0" width="6" height="18" rx="3" fill={tunic} />
-              {/* skin hand */}
-              <Circle cx="3" cy="18" r="3" fill="#D9A574" />
-              {/* slingshot Y shape */}
-              <G transform={`translate(${isShooting ? -2 : 0}, ${isShooting ? -8 : -6})`}>
-                <Path d="M 3 12 L 3 22" stroke="#78350F" strokeWidth="2.4" strokeLinecap="round" />
-                <Path d="M 3 12 L -3 4" stroke="#78350F" strokeWidth="2.4" strokeLinecap="round" />
-                <Path d="M 3 12 L 9 4" stroke="#78350F" strokeWidth="2.4" strokeLinecap="round" />
-                {/* rubber band */}
-                <Path
-                  d={isShooting ? "M -3 4 Q 3 12 9 4" : "M -3 4 Q 3 8 9 4"}
-                  stroke="#1F2937"
-                  strokeWidth="0.8"
-                  fill="none"
-                />
-                {/* stone in pouch */}
-                {!isShooting && <Circle cx="3" cy="8" r="1.5" fill="#374151" />}
-              </G>
+        <G transform={`translate(${68 + armSwingL * 0.3}, 120) rotate(${armSwingL * 0.5})`}>
+          <Path d="M 0 0 Q -4 20 -2 40 Q 6 42 8 40 Q 10 20 6 0 Z" fill={tunicShade} />
+          <Circle cx="2" cy="42" r="6" fill={skin} stroke={skinShade} strokeWidth="0.5" />
+        </G>
+        {hasSlingshot ? (
+          <G transform={`translate(${isShoot ? 145 : 138}, ${isShoot ? 110 : 120}) rotate(${isShoot ? -20 : 5})`}>
+            <Path d="M 0 0 Q 4 15 2 30 Q 10 32 12 30 Q 14 15 10 0 Z" fill={tunicMain} stroke={tunicShade} strokeWidth="0.8" />
+            <Circle cx="6" cy="32" r="6" fill={skin} stroke={skinShade} strokeWidth="0.5" />
+            <G transform="translate(6, 30)">
+              <Path d="M 0 0 L 0 25" stroke="url(#wood)" strokeWidth="6" strokeLinecap="round" />
+              <Path d="M 0 0 Q -3 -6 -10 -14" stroke="url(#wood)" strokeWidth="5" strokeLinecap="round" fill="none" />
+              <Path d="M 0 0 Q 3 -6 10 -14" stroke="url(#wood)" strokeWidth="5" strokeLinecap="round" fill="none" />
+              <Circle cx="-10" cy="-14" r="2.5" fill="#451A03" />
+              <Circle cx="10" cy="-14" r="2.5" fill="#451A03" />
+              <Path d={isShoot ? "M -10 -14 Q 0 0 10 -14" : "M -10 -14 Q 0 -8 10 -14"} stroke="#1F2937" strokeWidth="1.4" fill="none" />
+              {!isShoot && <Ellipse cx="0" cy="-8" rx="5" ry="3" fill="#78350F" stroke="#1F2937" strokeWidth="0.6" />}
+              {!isShoot && <Circle cx="0" cy="-8" r="3" fill="#6B7280" />}
             </G>
-          ) : (
-            <Rect x={56} y={52 - armSwing * 0.2} width="6" height="18" rx="3" fill={tunic} />
-          )}
-        </G>
-
+          </G>
+        ) : (
+          <G transform={`translate(${130 - armSwingR * 0.3}, 120) rotate(${-armSwingR * 0.5})`}>
+            <Path d="M 0 0 Q -4 20 -2 40 Q 6 42 8 40 Q 10 20 6 0 Z" fill={tunicMain} stroke={tunicShade} strokeWidth="0.8" />
+            <Circle cx="2" cy="42" r="6" fill={skin} stroke={skinShade} strokeWidth="0.5" />
+          </G>
+        )}
         {/* HEAD */}
-        <G>
-          {/* skin face */}
-          <Circle cx="50" cy="34" r="13" fill="#E8B98C" />
-          {/* hair edge */}
-          <Path
-            d="M 38 30 Q 40 22 50 21 Q 60 22 62 30 L 60 28 Q 50 24 40 28 Z"
-            fill="#1F1410"
-          />
-          {/* kufiyya/قبعة - white with red checker pattern */}
-          <Path
-            d="M 35 28 Q 35 18 50 16 Q 65 18 65 28 L 64 30 Q 50 22 36 30 Z"
-            fill="url(#kufiyya)"
-          />
-          {/* red stripes on kufiyya */}
-          <Path d="M 38 22 L 42 24 M 45 19 L 48 21 M 53 19 L 55 22 M 58 22 L 62 24" stroke="#DC2626" strokeWidth="1.3" strokeLinecap="round" />
-          {/* iqal (black band on top) */}
-          <Path d="M 36 26 Q 50 22 64 26" stroke="#0F172A" strokeWidth="2" fill="none" strokeLinecap="round" />
-
-          {/* eyebrows - mischievous */}
-          <Path d="M 42 31 L 47 30" stroke="#1F1410" strokeWidth="1.6" strokeLinecap="round" />
-          <Path d="M 53 30 L 58 31" stroke="#1F1410" strokeWidth="1.6" strokeLinecap="round" />
-          {/* eyes - bright and big */}
-          <Circle cx="44.5" cy="35" r="2.4" fill="#FFFFFF" />
-          <Circle cx="55.5" cy="35" r="2.4" fill="#FFFFFF" />
-          <Circle cx={44.5 + facing * 0.6} cy="35.2" r="1.5" fill="#1F2937" />
-          <Circle cx={55.5 + facing * 0.6} cy="35.2" r="1.5" fill="#1F2937" />
-          {/* eye shine */}
-          <Circle cx={45 + facing * 0.6} cy="34.4" r="0.5" fill="#FFFFFF" />
-          <Circle cx={56 + facing * 0.6} cy="34.4" r="0.5" fill="#FFFFFF" />
-          {/* cheeks blush */}
-          <Ellipse cx="42" cy="40" rx="3" ry="2" fill="url(#cheek)" />
-          <Ellipse cx="58" cy="40" rx="3" ry="2" fill="url(#cheek)" />
-          {/* mouth - mischievous smile */}
-          <Path
-            d={isShooting ? "M 46 41 Q 50 44 54 41" : "M 46 41 Q 50 43.5 54 41"}
-            stroke="#7F1D1D"
-            strokeWidth="1.5"
-            fill="none"
-            strokeLinecap="round"
-          />
-          {/* nose */}
-          <Path d="M 49 36 Q 50 38 51 38" stroke="#A26442" strokeWidth="1" fill="none" strokeLinecap="round" />
+        <Rect x="92" y="92" width="16" height="14" fill={skin} />
+        <Ellipse cx="100" cy="70" rx="32" ry="34" fill="url(#skinG)" stroke={skinShade} strokeWidth="0.8" />
+        <Path d="M 70 50 Q 75 35 100 33 Q 125 35 130 50 L 128 55 Q 115 45 100 46 Q 85 45 72 55 Z" fill="#1F1410" />
+        <Path d="M 71 60 Q 65 65 68 75" stroke="#1F1410" strokeWidth="3" fill="none" strokeLinecap="round" />
+        <Path d="M 129 60 Q 135 65 132 75" stroke="#1F1410" strokeWidth="3" fill="none" strokeLinecap="round" />
+        <Path d="M 62 50 Q 58 25 100 22 Q 142 25 138 50 L 142 65 L 138 70 Q 100 50 62 70 L 58 65 Z" fill="url(#kufiyya)" stroke="#9CA3AF" strokeWidth="0.8" />
+        <G opacity="0.85">
+          <Path d="M 70 35 L 76 40 M 85 26 L 91 31 M 95 24 L 101 29 M 105 24 L 111 29 M 115 26 L 121 31 M 125 30 L 131 35" stroke="#DC2626" strokeWidth="1.8" strokeLinecap="round" />
+          <Path d="M 67 45 L 73 50 M 88 38 L 94 43 M 100 36 L 106 41 M 110 38 L 116 43 M 131 45 L 137 50" stroke="#DC2626" strokeWidth="1.8" strokeLinecap="round" />
         </G>
+        <Path d="M 64 48 Q 100 38 136 48" stroke="#0F172A" strokeWidth="4" fill="none" strokeLinecap="round" />
+        <Circle cx="64" cy="50" r="3" fill="#0F172A" />
+        <Circle cx="136" cy="50" r="3" fill="#0F172A" />
+        {/* eyebrows */}
+        <Path d="M 80 65 Q 86 62 92 64" stroke="#1F1410" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+        <Path d="M 108 64 Q 114 62 120 65" stroke="#1F1410" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+        {/* eyes */}
+        <Ellipse cx="86" cy="74" rx="5.5" ry="6.5" fill="#FFFFFF" stroke="#1F2937" strokeWidth="1" />
+        <Ellipse cx="114" cy="74" rx="5.5" ry="6.5" fill="#FFFFFF" stroke="#1F2937" strokeWidth="1" />
+        <Circle cx={86 + facing * 1.5} cy="75" r="3.5" fill="#3B2812" />
+        <Circle cx={114 + facing * 1.5} cy="75" r="3.5" fill="#3B2812" />
+        <Circle cx={86 + facing * 1.5} cy="75" r="1.8" fill="#000" />
+        <Circle cx={114 + facing * 1.5} cy="75" r="1.8" fill="#000" />
+        <Circle cx={87 + facing * 1.5} cy="73" r="1.2" fill="#FFFFFF" />
+        <Circle cx={115 + facing * 1.5} cy="73" r="1.2" fill="#FFFFFF" />
+        {/* nose */}
+        <Path d="M 98 80 Q 100 86 102 80" fill={skinShade} opacity="0.5" />
+        {/* cheeks */}
+        <Ellipse cx="78" cy="86" rx="6" ry="4" fill="url(#cheek)" />
+        <Ellipse cx="122" cy="86" rx="6" ry="4" fill="url(#cheek)" />
+        {/* mouth */}
+        {isShoot ? (
+          <Ellipse cx="100" cy="92" rx="4" ry="3" fill="#7F1D1D" />
+        ) : (
+          <Path d="M 90 91 Q 100 97 110 91" stroke="#7F1D1D" strokeWidth="2.2" fill="none" strokeLinecap="round" />
+        )}
+        {/* ears */}
+        <Ellipse cx="65" cy="74" rx="3.5" ry="6" fill={skin} stroke={skinShade} strokeWidth="0.6" />
+        <Ellipse cx="135" cy="74" rx="3.5" ry="6" fill={skin} stroke={skinShade} strokeWidth="0.6" />
       </G>
     </Svg>
   );
 }
+
+export const BaghdadiBoy = memo(BaghdadiBoyComp);
