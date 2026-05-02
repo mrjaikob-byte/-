@@ -1,5 +1,4 @@
-// "مكعب الدرج" - 2D side-view physics game with 3D-rotating cube.
-// Cube rotates in 3D (perspective + rotateX/Y/Z) but world is 2D.
+// "مكعب الدرج" - 2D side-view physics game with TRUE 3D cube via SVG projection.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
@@ -17,27 +16,28 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import Svg, { Polygon, Defs, LinearGradient as SvgLG, Stop } from "react-native-svg";
 
 const { width: WIN_W, height: WIN_H } = Dimensions.get("window");
 
 // ========== Constants ==========
 const TILE = 28; // visual unit
-const CUBE_SIZE_BASE = TILE * 1.7;
-const STAIR_W = TILE * 3.2; // wider step (like a real staircase)
-const STAIR_H = TILE * 2.0; // shorter rise (proper stair proportions)
-const STAIR_FRONT_H = STAIR_H * 1.0; // visible front face height
+const CUBE_SIZE_BASE = TILE * 1.8;
+const STAIR_W = TILE * 5.0; // VERY wide step (long horizontally)
+const STAIR_H = TILE * 1.5; // short rise (short vertically)
+const STAIR_FRONT_H = STAIR_H * 1.0;
 const TOTAL_STAIRS = 1000;
 const POWERUP_EVERY = 20;
 const START_STAIR = 20;
-const FINISH_LINE_INDEX = TOTAL_STAIRS - 1; // stair "1" from the end = the goal
+const FINISH_LINE_INDEX = TOTAL_STAIRS - 1;
 
 // Physics
-const GRAVITY = 1500; // px/s²
-const BOUNCE_DAMP = 0.45;
-const FRICTION_GROUND = 1.4; // lower = more sliding
-const AIM_SPEED = 1.6; // rad/s pendulum
-const STOP_THRESHOLD_VEL = 8; // below this is "stopped"
-const STOP_THRESHOLD_TIME = 0.9; // seconds of stopped → end game
+const GRAVITY = 1400; // px/s²
+const BOUNCE_DAMP = 0.32; // realistic restitution - cube loses 68% energy per bounce
+const FRICTION_GROUND = 1.8; // ground friction
+const AIM_SPEED = 1.6;
+const STOP_THRESHOLD_VEL = 8;
+const STOP_THRESHOLD_TIME = 0.7;
 
 // Power-ups
 type PowerType =
@@ -264,7 +264,7 @@ export default function StairCube() {
 
       // Integrate (sub-stepped to prevent tunneling)
       const speed = Math.hypot(c.vx, c.vy);
-      const maxStep = c.size * 0.3; // never move more than 30% of cube size per substep
+      const maxStep = c.size * 0.25; // never move more than 25% of cube size per substep
       const steps = Math.max(1, Math.ceil((speed * dt) / maxStep));
       const sdt = dt / steps;
       for (let i = 0; i < steps; i++) {
@@ -273,15 +273,15 @@ export default function StairCube() {
         collideWithStairs(c, stairsRef.current);
       }
 
-      // Rotation: ONLY rotate around Z (rolling) so cube keeps 3D isometric look
-      // rotVZ is proportional to horizontal velocity (rolling speed)
-      c.rotVZ = (c.vx / c.size) * 0.9;
+      // 3D Rotation update from impacts/rolling
       c.rotZ += c.rotVZ * dt;
-      // Keep X/Y rotation at zero so cube never appears flat
-      c.rotX = 0;
-      c.rotY = 0;
-      c.rotVX = 0;
-      c.rotVY = 0;
+      c.rotX += c.rotVX * dt;
+      c.rotY += c.rotVY * dt;
+
+      // Air friction on rotation (slight)
+      c.rotVX *= 0.992;
+      c.rotVY *= 0.992;
+      c.rotVZ *= 0.992;
 
       // Ground friction (sliding feel - low friction)
       if (c.onGround) {
@@ -373,19 +373,31 @@ export default function StairCube() {
         // Determine collision side by min penetration
         const penTop = cubeBottom - stairTop;       // hit top of stair from above
         const penLeft = cubeRight - stairLeft;      // hit left wall from outside-left
-        // (no right wall - stairs cascade)
         // Resolve smallest penetration
         if (penTop < penLeft && c.vy >= 0) {
-          // Land on top
+          // Land on top — REAL physics
           c.y = stairTop - halfS;
           if (c.vy > 0) {
-            // Bounce
-            const bounce = c.isBall ? 0.7 : BOUNCE_DAMP;
+            // Restitution along Y (normal direction)
+            const bounce = c.isBall ? 0.65 : BOUNCE_DAMP;
+            const incomingVy = c.vy;
             c.vy = -c.vy * bounce;
-            // Trigger small bounce only if moving fast enough
-            if (Math.abs(c.vy) < 60) c.vy = 0;
-            if (Math.abs(c.vy) < 60) {
+            // Tangential friction reduces vx slightly on impact
+            c.vx *= 0.92;
+            // Add angular impulse based on impact (the cube tumbles in 3D)
+            // Hitting top while moving right → rotate forward (X axis)
+            const impactStrength = Math.min(1, incomingVy / 700);
+            c.rotVX += (c.vx / c.size) * 8 * impactStrength;
+            c.rotVZ += (Math.random() - 0.5) * 4 * impactStrength;
+            c.rotVY += (Math.random() - 0.5) * 2 * impactStrength;
+            // Stop bouncing if velocity too low (settle on ground)
+            if (Math.abs(c.vy) < 50) {
+              c.vy = 0;
               c.onGround = true;
+            }
+            // Haptic feedback proportional to impact
+            if (impactStrength > 0.3) {
+              try { Haptics.impactAsync(impactStrength > 0.7 ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Medium); } catch {}
             }
           }
           // Mark touched
@@ -399,9 +411,16 @@ export default function StairCube() {
           }
           c.onStair = s.i;
         } else if (penLeft < penTop && c.vx > 0) {
-          // Hit left wall (treat as bounce off vertical surface)
+          // Hit left wall (vertical face) — bounce back
           c.x = stairLeft - halfS;
+          const incomingVx = c.vx;
           c.vx = -c.vx * BOUNCE_DAMP;
+          // Reduce vy slightly (friction at wall)
+          c.vy *= 0.95;
+          // Angular impulse from wall hit (rotate around Y axis)
+          c.rotVY += (incomingVx / c.size) * 6;
+          c.rotVZ -= (incomingVx / c.size) * 3;
+          try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
         }
       }
     }
@@ -452,14 +471,14 @@ export default function StairCube() {
       // Launch
       const angle = aim.angle; // -1.1 to 1.1, where 0 is straight up
       const speed = 400 + power.value * 1100;
-      // Convert: angle 0 = up, positive = tilted right
       const dirX = Math.sin(angle);
       const dirY = -Math.cos(angle);
       cube.vx = dirX * speed;
       cube.vy = dirY * speed;
-      cube.rotVZ = 0; // Z rotation will follow vx in flight loop
-      cube.rotVX = 0;
-      cube.rotVY = 0;
+      // Initial 3D tumble — true random axis rotation for realistic flight spin
+      cube.rotVX = (Math.random() - 0.3) * 8 + power.value * 4;
+      cube.rotVY = (Math.random() - 0.5) * 6;
+      cube.rotVZ = (Math.random() - 0.5) * 5 + (cube.vx / cube.size) * 0.3;
       try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
       setPhase("flight");
       return;
@@ -563,22 +582,29 @@ export default function StairCube() {
           </Text>
         ))}
 
-        {/* Cube (the star) */}
+        {/* Cube (the star) — true 3D via SVG */}
         {phase !== "menu" && (
           <Animated.View
             style={{
               position: "absolute",
-              width: CUBE_SIZE_BASE,
-              height: CUBE_SIZE_BASE,
+              width: CUBE_SIZE_BASE * 1.6,
+              height: CUBE_SIZE_BASE * 1.6,
+              marginLeft: -CUBE_SIZE_BASE * 0.3,
+              marginTop: -CUBE_SIZE_BASE * 0.3,
               transform: [
                 { translateX: cubeTX },
                 { translateY: cubeTY },
-                { rotate: cubeRZ.interpolate({ inputRange: [0, 2 * Math.PI], outputRange: ["0deg", "360deg"] }) },
-                { scale: cubeScale },
               ],
+              alignItems: "center",
+              justifyContent: "center",
             }}
           >
-            <Cube3D size={CUBE_SIZE_BASE} hasPower={!!hud.activePower} powerColor={hud.activePower ? POWER_LABELS[hud.activePower.type].color : ""} />
+            <SvgCube3D
+              size={CUBE_SIZE_BASE}
+              cubeRef={{ current: cube as any }}
+              hasPower={!!hud.activePower}
+              powerColor={hud.activePower ? POWER_LABELS[hud.activePower.type].color : ""}
+            />
           </Animated.View>
         )}
 
@@ -916,7 +942,159 @@ function Stair3D({ stair }: { stair: Stair }) {
   );
 }
 
-// ===== Cube component (true 3D look with isometric perspective) =====
+// ===== TRUE 3D Cube via SVG vertex projection =====
+// Renders a real 3D cube (6 faces) with rotation around all 3 axes,
+// perspective projection, and z-sorted face drawing for proper 3D look.
+
+const CUBE_VERTS: [number, number, number][] = [
+  [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], // back face (z=-1)
+  [-1, -1,  1], [1, -1,  1], [1, 1,  1], [-1, 1,  1], // front face (z=+1)
+];
+// Each face: [v0, v1, v2, v3] in CCW order when looking at front
+const CUBE_FACES: { idx: number[]; name: string }[] = [
+  { idx: [4, 5, 6, 7], name: "front" },
+  { idx: [1, 0, 3, 2], name: "back" },
+  { idx: [0, 4, 7, 3], name: "left" },
+  { idx: [5, 1, 2, 6], name: "right" },
+  { idx: [4, 5, 1, 0], name: "bottom" },
+  { idx: [3, 2, 6, 7], name: "top" },
+];
+
+function rotateXYZ(p: [number, number, number], rx: number, ry: number, rz: number): [number, number, number] {
+  let [x, y, z] = p;
+  // Z rotation
+  let c = Math.cos(rz), s = Math.sin(rz);
+  let nx = x * c - y * s; let ny = x * s + y * c;
+  x = nx; y = ny;
+  // Y rotation
+  c = Math.cos(ry); s = Math.sin(ry);
+  nx = x * c + z * s; let nz = -x * s + z * c;
+  x = nx; z = nz;
+  // X rotation
+  c = Math.cos(rx); s = Math.sin(rx);
+  ny = y * c - z * s; nz = y * s + z * c;
+  y = ny; z = nz;
+  return [x, y, z];
+}
+
+function SvgCube3D({
+  size,
+  cubeRef,
+  hasPower,
+  powerColor,
+}: {
+  size: number;
+  cubeRef: React.MutableRefObject<{ rotX: number; rotY: number; rotZ: number; size: number; isBall: boolean }>;
+  hasPower: boolean;
+  powerColor: string;
+}) {
+  // Self-managed re-render at 60fps reading from cubeRef
+  const [, tick] = React.useReducer((v: number) => v + 1, 0);
+  React.useEffect(() => {
+    let raf = 0;
+    const loop = () => {
+      tick();
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const halfSize = size / 2;
+  const persp = 3.5; // perspective strength (smaller = more dramatic 3D)
+  const rx = cubeRef.current.rotX;
+  const ry = cubeRef.current.rotY;
+  const rz = cubeRef.current.rotZ;
+  const dynamicSize = cubeRef.current.size;
+  const scale = dynamicSize / size;
+
+  // Project all 8 vertices
+  const projected: [number, number, number][] = CUBE_VERTS.map((v) => {
+    const [x, y, z] = rotateXYZ(v, rx, ry, rz);
+    const f = persp / (persp + z); // perspective foreshortening
+    return [x * halfSize * f * scale, y * halfSize * f * scale, z];
+  });
+
+  // Compute face data with avg Z for sorting
+  const facesData = CUBE_FACES.map((face) => {
+    const pts = face.idx.map((i) => projected[i]);
+    const avgZ = pts.reduce((s, p) => s + p[2], 0) / pts.length;
+    // Compute face normal Z (in screen space) for shading
+    const [a, b, c] = pts;
+    const ux = b[0] - a[0], uy = b[1] - a[1];
+    const vx = c[0] - a[0], vy = c[1] - a[1];
+    const normalZ = ux * vy - uy * vx; // 2D cross product
+    return { face, pts, avgZ, normalZ };
+  });
+
+  // Sort back-to-front (largest avgZ = farthest behind = drawn first)
+  facesData.sort((a, b) => b.avgZ - a.avgZ);
+
+  // Skip back-facing faces (normalZ <= 0 means facing away in screen space)
+  const visible = facesData.filter((f) => f.normalZ > 0);
+
+  // Determine main color
+  const mainColor = hasPower && powerColor ? powerColor : "#EC4899"; // pink
+  const lightShade = hasPower ? lighten(powerColor) : "#FBCFE8";
+  const darkShade = hasPower ? darken(powerColor, 0.4) : "#9D174D";
+  const veryDark = hasPower ? darken(powerColor, 0.6) : "#500724";
+
+  // Per-face base shading
+  const faceColor = (name: string) => {
+    switch (name) {
+      case "top": return lightShade;
+      case "bottom": return veryDark;
+      case "front": return mainColor;
+      case "back": return darkShade;
+      case "left": return darkShade;
+      case "right": return lightShade;
+      default: return mainColor;
+    }
+  };
+
+  // Render via SVG. Box is centered at (0,0).
+  const viewSize = size * 1.6; // viewport with padding for perspective
+  return (
+    <Svg width={viewSize} height={viewSize} viewBox={`${-viewSize / 2} ${-viewSize / 2} ${viewSize} ${viewSize}`}>
+      {visible.map((f, i) => {
+        const points = f.pts.map((p) => `${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(" ");
+        // Lambert-like shading: dot product with light direction (front-top)
+        const lightFactor = Math.max(0.55, Math.min(1, 0.55 + (f.normalZ / (size * size)) * 0.6));
+        const fill = applyShade(faceColor(f.face.name), lightFactor);
+        return (
+          <Polygon
+            key={`${f.face.name}-${i}`}
+            points={points}
+            fill={fill}
+            stroke={veryDark}
+            strokeWidth={1.2}
+            strokeLinejoin="round"
+          />
+        );
+      })}
+    </Svg>
+  );
+}
+
+function applyShade(hex: string, factor: number): string {
+  // Multiply each channel by factor; supports #RRGGBB or rgb(r,g,b)
+  let r = 0, g = 0, b = 0;
+  if (hex.startsWith("#")) {
+    const n = parseInt(hex.slice(1), 16);
+    r = (n >> 16) & 0xff; g = (n >> 8) & 0xff; b = n & 0xff;
+  } else if (hex.startsWith("rgb")) {
+    const m = hex.match(/(\d+),\s*(\d+),\s*(\d+)/);
+    if (m) { r = parseInt(m[1]); g = parseInt(m[2]); b = parseInt(m[3]); }
+  } else {
+    return hex;
+  }
+  r = Math.max(0, Math.min(255, Math.floor(r * factor)));
+  g = Math.max(0, Math.min(255, Math.floor(g * factor)));
+  b = Math.max(0, Math.min(255, Math.floor(b * factor)));
+  return `rgb(${r},${g},${b})`;
+}
+
+// ===== Cube component (legacy isometric look - kept as fallback) =====
 function Cube3D({ size, hasPower, powerColor }: { size: number; hasPower: boolean; powerColor: string }) {
   // Render the cube with 3 visible isometric faces (top, front, right) - looks truly 3D.
   const main = hasPower ? powerColor : "#F472B6";
