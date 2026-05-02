@@ -141,6 +141,18 @@ frontend:
         agent: "main"
         comment: "Added Wordle game card with 'جديد' badge, AI-generated cover image (floating Arabic calligraphy tiles with golden sparkles), emerald/purple gradient accents. Game count updated to 4 available games."
 
+  - task: "Stair Cube Game (مكعب الدرج) - 5th game"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/games/stair-cube.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Built complete physics game: 3-phase flow (aim oscillating arrow → power meter → flight). Cube starts at stair 20, goal stair (1000th) has visible checkered finish flag with pole + 'خط النهاية' label. Cube renders as true 3D isometric box (top + right + front faces with shading and white pip). 1000 tall stairs (TILE*5 high) cascade down-right. Substep AABB collision prevents tunneling through stairs. Power-ups every 20 stairs (lowG, highG, pullL/R, pullUp, bigCube, smallCube, ball, broken). Stop detection: cube comes to rest for 0.9s on a stair → game ends with score (touched stairs) + 500 bonus if crossed finish line. AsyncStorage top-10 high scores. Camera follows cube with smooth LERP. Verified via screenshot: menu, aim arrow, power meter, flight phase with collision (3 stairs touched & turned green) all render correctly."
+
 metadata:
   created_by: "main_agent"
   version: "1.0"

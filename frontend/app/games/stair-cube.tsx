@@ -22,18 +22,21 @@ const { width: WIN_W, height: WIN_H } = Dimensions.get("window");
 
 // ========== Constants ==========
 const TILE = 28; // visual unit
-const CUBE_SIZE_BASE = TILE * 1.3;
-const STAIR_W = TILE * 1.8;
-const STAIR_H = TILE * 2.6; // much taller stairs (long and thin)
+const CUBE_SIZE_BASE = TILE * 1.5;
+const STAIR_W = TILE * 1.6;
+const STAIR_H = TILE * 5.0; // VERY TALL stairs (long and thin)
 const TOTAL_STAIRS = 1000;
 const POWERUP_EVERY = 20;
 const START_STAIR = 20;
+const FINISH_LINE_INDEX = TOTAL_STAIRS - 1; // stair "1" from the end = the goal
 
 // Physics
-const GRAVITY = 1800; // px/s²
-const BOUNCE_DAMP = 0.55;
-const FRICTION_GROUND = 4.5;
+const GRAVITY = 2400; // px/s²  - stronger for taller stairs
+const BOUNCE_DAMP = 0.5;
+const FRICTION_GROUND = 1.6; // lower = more sliding
 const AIM_SPEED = 1.6; // rad/s pendulum
+const STOP_THRESHOLD_VEL = 8; // below this is "stopped"
+const STOP_THRESHOLD_TIME = 0.9; // seconds of stopped → end game
 
 // Power-ups
 type PowerType =
@@ -117,6 +120,9 @@ export default function StairCube() {
   const aim = useRef({ angle: 0, dir: 1, locked: false }).current; // angle in rad from "up"
   const power = useRef({ value: 0, locked: false, dir: 1 }).current; // 0..1
   const activePowerRef = useRef<{ type: PowerType; ttl: number } | null>(null);
+  const stoppedTimerRef = useRef(0);
+  const crossedFinishRef = useRef(false);
+  const hasThrownRef = useRef(false);
 
   // Visible UI state
   const [hud, setHud] = useState({
@@ -160,10 +166,22 @@ export default function StairCube() {
     aim.angle = 0; aim.dir = 1; aim.locked = false;
     power.value = 0; power.locked = false; power.dir = 1;
     activePowerRef.current = null;
-    setHud({ score: 0, aimAngle: 0, power: 0, activePower: null, finalScore: 0, highScores: [] });
+    stoppedTimerRef.current = 0;
+    crossedFinishRef.current = false;
+    hasThrownRef.current = false;
+
+    // Snap camera to cube immediately so it's on screen on first frame
+    cam.x = cube.x - WIN_W / 2;
+    cam.y = cube.y - WIN_H * 0.45;
+    camTX.setValue(-cam.x);
+    camTY.setValue(-cam.y);
+    cubeTX.setValue(cube.x - cube.size / 2);
+    cubeTY.setValue(cube.y - cube.size / 2);
+
+    setHud({ score: 0, aimAngle: 0, power: 0, activePower: null, finalScore: 0, highScores: hud.highScores });
     setFloats([]);
     setPhase("aim");
-  }, [aim, cube, power]);
+  }, [aim, cube, power, cam, camTX, camTY, cubeTX, cubeTY, hud.highScores]);
 
   // Load high scores
   useEffect(() => {
@@ -242,9 +260,10 @@ export default function StairCube() {
       c.vx += pullX * dt;
       c.vy += pullY * dt;
 
-      // Integrate (sub-stepped)
+      // Integrate (sub-stepped to prevent tunneling)
       const speed = Math.hypot(c.vx, c.vy);
-      const steps = Math.max(1, Math.ceil(speed * dt / 8));
+      const maxStep = c.size * 0.3; // never move more than 30% of cube size per substep
+      const steps = Math.max(1, Math.ceil((speed * dt) / maxStep));
       const sdt = dt / steps;
       for (let i = 0; i < steps; i++) {
         c.x += c.vx * sdt;
@@ -262,12 +281,13 @@ export default function StairCube() {
       c.rotVY *= 0.995;
       c.rotVZ *= 0.995;
 
-      // Ground friction (rolling stop)
+      // Ground friction (sliding feel - low friction)
       if (c.onGround) {
         const sg = Math.sign(c.vx);
         c.vx -= sg * FRICTION_GROUND * 60 * dt;
         if (Math.sign(c.vx) !== sg) c.vx = 0;
-        c.rotVZ *= 0.92;
+        // Slow rotation when grounded
+        c.rotVZ *= 0.95;
       }
 
       // Score: count unique stairs touched
@@ -276,19 +296,29 @@ export default function StairCube() {
         setHud((h) => ({ ...h, score: touchedCount }));
       }
 
-      // End conditions: cube fell off the world OR finished
+      // Crossed finish line?
+      const finishStair = stairsRef.current[FINISH_LINE_INDEX];
+      if (finishStair && c.x > finishStair.x + STAIR_W) {
+        crossedFinishRef.current = true;
+      }
+
+      // Stop detection (cube moving very slowly while grounded)
+      const totalSpeed = Math.abs(c.vx) + Math.abs(c.vy);
+      if (totalSpeed < STOP_THRESHOLD_VEL && c.onGround) {
+        stoppedTimerRef.current += dt;
+      } else {
+        stoppedTimerRef.current = 0;
+      }
+
+      // End conditions
       const lastStair = stairsRef.current[TOTAL_STAIRS - 1];
-      const fellBelow = c.y > lastStair.y + 1500;
-      const wentOff = c.x < -300 || c.x > lastStair.x + 1500;
-      const slowEnough = Math.abs(c.vx) < 4 && Math.abs(c.vy) < 4 && c.onGround;
-      if (fellBelow || wentOff) {
-        endGame();
-      } else if (slowEnough && phase === "flight") {
-        // Settle: return to aim (re-aim from new position)
-        aim.angle = 0; aim.dir = 1; aim.locked = false;
-        power.value = 0; power.locked = false; power.dir = 1;
-        c.rotVX = 0; c.rotVY = 0; c.rotVZ = 0;
-        setPhase("aim");
+      const fellBelow = c.y > lastStair.y + 2000; // fell off the world
+      const wentOffLeft = c.x < -300;
+      if (fellBelow || wentOffLeft) {
+        endGame(false);
+      } else if (stoppedTimerRef.current >= STOP_THRESHOLD_TIME) {
+        // Stopped fully on a stair - end game (with bonus if crossed finish)
+        endGame(crossedFinishRef.current);
       }
     }
 
@@ -440,9 +470,15 @@ export default function StairCube() {
     }
   };
 
-  const endGame = useCallback(async () => {
+  const endGame = useCallback(async (won: boolean = false) => {
     setPhase("ended");
-    const finalScore = hud.score;
+    // Compute current score from stairs touched (avoid stale state)
+    const touched = stairsRef.current.reduce((acc, s) => acc + (s.touched ? 1 : 0), 0);
+    const bonus = won ? 500 : 0;
+    const finalScore = touched + bonus;
+    if (won) {
+      try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch {}
+    }
     // Save high score
     try {
       const raw = await AsyncStorage.getItem(HIGH_SCORE_KEY);
@@ -451,11 +487,11 @@ export default function StairCube() {
       arr.sort((a, b) => b.score - a.score);
       const top = arr.slice(0, 10);
       await AsyncStorage.setItem(HIGH_SCORE_KEY, JSON.stringify(top));
-      setHud((h) => ({ ...h, finalScore, highScores: top }));
+      setHud((h) => ({ ...h, finalScore, highScores: top, score: touched }));
     } catch {
-      setHud((h) => ({ ...h, finalScore }));
+      setHud((h) => ({ ...h, finalScore, score: touched }));
     }
-  }, [hud.score, playerName]);
+  }, [playerName]);
 
   // ===== RENDER ==========
 
@@ -788,40 +824,184 @@ function Stair3D({ stair }: { stair: Stair }) {
           {stair.i}
         </Text>
       )}
+      {/* FINISH LINE marker at the goal stair */}
+      {stair.i === FINISH_LINE_INDEX && (
+        <>
+          {/* Pole */}
+          <View
+            style={{
+              position: "absolute",
+              left: stair.x + STAIR_W / 2 - 2,
+              top: stair.y - 120,
+              width: 4,
+              height: 120,
+              backgroundColor: "#FFFFFF",
+            }}
+          />
+          {/* Checkered flag */}
+          <View
+            style={{
+              position: "absolute",
+              left: stair.x + STAIR_W / 2 + 2,
+              top: stair.y - 120,
+              width: 56,
+              height: 36,
+              flexDirection: "row",
+              flexWrap: "wrap",
+              borderWidth: 1,
+              borderColor: "#000",
+              overflow: "hidden",
+            }}
+          >
+            {Array.from({ length: 24 }).map((_, k) => {
+              const r = Math.floor(k / 8);
+              const c = k % 8;
+              const black = (r + c) % 2 === 0;
+              return (
+                <View
+                  key={k}
+                  style={{
+                    width: 7, height: 12,
+                    backgroundColor: black ? "#000" : "#fff",
+                  }}
+                />
+              );
+            })}
+          </View>
+          {/* "FINISH" label */}
+          <Text
+            style={{
+              position: "absolute",
+              left: stair.x - 30,
+              top: stair.y - 150,
+              width: STAIR_W + 60,
+              textAlign: "center",
+              color: "#FBBF24",
+              fontSize: 14,
+              fontWeight: "900",
+              textShadow: "0px 0px 8px rgba(0,0,0,0.9)",
+            }}
+          >
+            🏁 خط النهاية
+          </Text>
+        </>
+      )}
     </>
   );
 }
 
-// ===== Cube component (pseudo-3D with 3 faces) =====
+// ===== Cube component (true 3D look with isometric perspective) =====
 function Cube3D({ size, hasPower, powerColor }: { size: number; hasPower: boolean; powerColor: string }) {
-  // We'll draw a single colored face with shading lines.
-  // Real 3D rotation comes from Animated transforms outside.
+  // Render the cube with 3 visible isometric faces (top, front, right) - looks truly 3D.
   const main = hasPower ? powerColor : "#F472B6";
-  const dark = hasPower ? "#1F2937" : "#9D174D";
-  const light = "#FFFFFF";
+  const top = hasPower ? lighten(powerColor) : "#FBCFE8";
+  const right = hasPower ? darken(powerColor) : "#9D174D";
+  const edge = hasPower ? darken(powerColor, 0.5) : "#500724";
+  const dotColor = hasPower ? "#FFFFFF" : "#FFFFFF";
+
+  // Isometric depth offset
+  const dx = size * 0.22;
+  const dy = size * 0.22;
+
   return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        backgroundColor: main,
-        borderWidth: 3,
-        borderColor: dark,
-        borderRadius: 6,
-        alignItems: "center",
-        justifyContent: "center",
-        // gradient via overlays
-      }}
-    >
-      {/* Inner highlights to simulate cube lighting */}
-      <View style={{ position: "absolute", top: 4, left: 4, right: 4, height: 6, backgroundColor: light, opacity: 0.4, borderRadius: 3 }} />
-      <View style={{ position: "absolute", left: 4, top: 4, bottom: 4, width: 6, backgroundColor: light, opacity: 0.25, borderRadius: 3 }} />
-      <View style={{ position: "absolute", right: 4, top: 4, bottom: 4, width: 6, backgroundColor: dark, opacity: 0.5, borderRadius: 3 }} />
-      <View style={{ position: "absolute", bottom: 4, left: 4, right: 4, height: 6, backgroundColor: dark, opacity: 0.4, borderRadius: 3 }} />
-      {/* Center dot decoration */}
-      <View style={{ width: size * 0.25, height: size * 0.25, backgroundColor: light, borderRadius: 100, opacity: 0.85 }} />
+    <View style={{ width: size + dx, height: size + dy }}>
+      {/* TOP face - parallelogram via skewX */}
+      <View
+        style={{
+          position: "absolute",
+          left: dx,
+          top: 0,
+          width: size,
+          height: dy,
+          backgroundColor: top,
+          transform: [{ skewX: "-45deg" }, { translateX: -dy / 2 }],
+          borderTopWidth: 1.5,
+          borderTopColor: edge,
+          borderLeftWidth: 1.5,
+          borderLeftColor: edge,
+        }}
+      />
+      {/* RIGHT face - parallelogram via skewY */}
+      <View
+        style={{
+          position: "absolute",
+          left: size,
+          top: dy,
+          width: dx,
+          height: size,
+          backgroundColor: right,
+          transform: [{ skewY: "-45deg" }, { translateY: -dx / 2 }],
+          borderTopWidth: 1.5,
+          borderTopColor: edge,
+          borderRightWidth: 1.5,
+          borderRightColor: edge,
+        }}
+      />
+      {/* FRONT face - solid square with shading & dot */}
+      <View
+        style={{
+          position: "absolute",
+          left: 0,
+          top: dy,
+          width: size,
+          height: size,
+          backgroundColor: main,
+          borderWidth: 1.5,
+          borderColor: edge,
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: 2,
+        }}
+      >
+        {/* Highlight on top-left */}
+        <View
+          style={{
+            position: "absolute",
+            top: 3,
+            left: 3,
+            width: size * 0.45,
+            height: size * 0.45,
+            backgroundColor: "#FFFFFF",
+            opacity: 0.18,
+            borderRadius: 4,
+          }}
+        />
+        {/* Center pip */}
+        <View
+          style={{
+            width: size * 0.28,
+            height: size * 0.28,
+            backgroundColor: dotColor,
+            borderRadius: 100,
+            opacity: 0.95,
+            borderWidth: 2,
+            borderColor: edge,
+          }}
+        />
+      </View>
     </View>
   );
+}
+
+function lighten(hex: string): string {
+  // simple lighten by mixing with white
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  const r = Math.min(255, ((n >> 16) & 0xff) + 60);
+  const g = Math.min(255, ((n >> 8) & 0xff) + 60);
+  const b = Math.min(255, (n & 0xff) + 60);
+  return `rgb(${r},${g},${b})`;
+}
+
+function darken(hex: string, amt = 0.25): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  const r = Math.max(0, Math.floor(((n >> 16) & 0xff) * (1 - amt)));
+  const g = Math.max(0, Math.floor(((n >> 8) & 0xff) * (1 - amt)));
+  const b = Math.max(0, Math.floor((n & 0xff) * (1 - amt)));
+  return `rgb(${r},${g},${b})`;
 }
 
 const styles = StyleSheet.create({
