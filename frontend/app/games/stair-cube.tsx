@@ -33,11 +33,11 @@ const FINISH_LINE_INDEX = TOTAL_STAIRS - 1;
 
 // Physics
 const GRAVITY = 1400; // px/s²
-const BOUNCE_DAMP = 0.32; // realistic restitution - cube loses 68% energy per bounce
-const FRICTION_GROUND = 1.8; // ground friction
+const BOUNCE_DAMP = 0.34; // realistic restitution
+const FRICTION_GROUND = 0.35; // very low ground friction → lots of sliding
 const AIM_SPEED = 1.6;
-const STOP_THRESHOLD_VEL = 8;
-const STOP_THRESHOLD_TIME = 0.7;
+const STOP_THRESHOLD_VEL = 6;
+const STOP_THRESHOLD_TIME = 0.9;
 
 // Power-ups
 type PowerType =
@@ -397,12 +397,20 @@ export default function StairCube() {
             const bounce = c.isBall ? 0.65 : BOUNCE_DAMP;
             const incomingVy = c.vy;
             c.vy = -c.vy * bounce;
-            c.vx *= 0.92;
-            // Angular impulse from impact (3D tumble)
-            const impactStrength = Math.min(1, incomingVy / 700);
-            c.rotVX += (c.vx / c.size) * 8 * impactStrength;
-            c.rotVZ += (Math.random() - 0.5) * 4 * impactStrength;
-            c.rotVY += (Math.random() - 0.5) * 2 * impactStrength;
+            // Gentle tangential friction (allows lots of sliding)
+            c.vx *= 0.97;
+            // === REALISTIC ROTATION FROM IMPACT ===
+            // Strength depends on impact velocity (vy) and horizontal speed (vx)
+            const impactStrength = Math.min(1.5, incomingVy / 600);
+            const horizontalSpeed = Math.abs(c.vx) / c.size;
+            // Primary rotation: tumble forward proportional to vx (rolling)
+            // The sign matches direction of travel (positive vx → forward tumble)
+            const targetRollSpeed = horizontalSpeed * Math.sign(c.vx) * 1.2;
+            // Smoothly steer current rotVZ toward this target (more controlled than random)
+            c.rotVZ = c.rotVZ * 0.3 + targetRollSpeed * 0.7;
+            // Small wobble around X and Y based on impact (less chaotic)
+            c.rotVX += (Math.random() - 0.5) * 1.5 * impactStrength;
+            c.rotVY += (Math.random() - 0.5) * 1.0 * impactStrength;
             // Settle if low velocity
             if (Math.abs(c.vy) < 50) {
               c.vy = 0;
@@ -423,24 +431,26 @@ export default function StairCube() {
           c.onStair = s.i;
         } else {
           // === HIT A SIDE WALL ===
-          // Decide which wall by min penetration of the two horizontal walls
           if (penLeft < penRight && c.vx > 0) {
-            // Cube moving right, hit LEFT wall of this stair
+            // Cube moving right, hit LEFT wall
             c.x = stairLeft - halfS;
             const incomingVx = c.vx;
             c.vx = -c.vx * BOUNCE_DAMP;
             c.vy *= 0.95;
-            c.rotVY += (incomingVx / c.size) * 6;
-            c.rotVZ -= (incomingVx / c.size) * 3;
+            // Wall hit makes it spin around Y axis (tumble sideways) and Z (recoil)
+            const wallStrength = Math.min(1.5, Math.abs(incomingVx) / 500);
+            c.rotVY += Math.sign(incomingVx) * wallStrength * 4;
+            c.rotVZ -= Math.sign(incomingVx) * wallStrength * 2;
             try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
           } else if (penRight < penLeft && c.vx < 0) {
-            // Cube moving LEFT, hit RIGHT wall of this stair (the visible step "rise")
+            // Cube moving LEFT, hit RIGHT wall
             c.x = stairRight + halfS;
             const incomingVx = c.vx;
             c.vx = -c.vx * BOUNCE_DAMP;
             c.vy *= 0.95;
-            c.rotVY -= (Math.abs(incomingVx) / c.size) * 6;
-            c.rotVZ += (Math.abs(incomingVx) / c.size) * 3;
+            const wallStrength = Math.min(1.5, Math.abs(incomingVx) / 500);
+            c.rotVY -= wallStrength * 4;
+            c.rotVZ += wallStrength * 2;
             try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
           }
         }
@@ -612,10 +622,10 @@ export default function StairCube() {
           <Animated.View
             style={{
               position: "absolute",
-              width: CUBE_SIZE_BASE * 1.6,
-              height: CUBE_SIZE_BASE * 1.6,
-              marginLeft: -CUBE_SIZE_BASE * 0.3,
-              marginTop: -CUBE_SIZE_BASE * 0.3,
+              width: CUBE_SIZE_BASE * 1.8,
+              height: CUBE_SIZE_BASE * 1.8,
+              marginLeft: -CUBE_SIZE_BASE * 0.4,
+              marginTop: -CUBE_SIZE_BASE * 0.55,
               transform: [
                 { translateX: cubeTX },
                 { translateY: cubeTY },
@@ -780,7 +790,7 @@ export default function StairCube() {
   );
 }
 
-// ===== Stair component =====
+// ===== Stair component (improved 3D look) =====
 function Stair3D({ stair }: { stair: Stair }) {
   if (stair.broken) {
     return (
@@ -800,14 +810,19 @@ function Stair3D({ stair }: { stair: Stair }) {
       />
     );
   }
-  const baseColor = stair.isPower ? "#FBBF24" : stair.touched ? "#34D399" : "#818CF8";
-  const sideColor = stair.isPower ? "#B45309" : stair.touched ? "#047857" : "#4338CA";
-  const darkColor = stair.isPower ? "#78350F" : stair.touched ? "#064E3B" : "#312E81";
-  // Isometric depth for 3D look on stair
-  const depth = STAIR_W * 0.18;
+  // Color palette per stair type
+  let topColor: string, frontColor: string, sideColor: string, edgeColor: string, highlightColor: string;
+  if (stair.isPower) {
+    topColor = "#FCD34D"; frontColor = "#D97706"; sideColor = "#92400E"; edgeColor = "#451A03"; highlightColor = "#FEF3C7";
+  } else if (stair.touched) {
+    topColor = "#34D399"; frontColor = "#059669"; sideColor = "#065F46"; edgeColor = "#022C22"; highlightColor = "#A7F3D0";
+  } else {
+    topColor = "#A5B4FC"; frontColor = "#6366F1"; sideColor = "#3730A3"; edgeColor = "#1E1B4B"; highlightColor = "#E0E7FF";
+  }
+  const depth = STAIR_W * 0.16;
   return (
     <>
-      {/* Right (depth) face - parallelogram giving 3D look */}
+      {/* DEPTH face (right side, 3D side) — drawn FIRST so other faces overlap it */}
       <View
         style={{
           position: "absolute",
@@ -815,44 +830,59 @@ function Stair3D({ stair }: { stair: Stair }) {
           top: stair.y - depth,
           width: depth,
           height: STAIR_FRONT_H + depth,
-          backgroundColor: darkColor,
+          backgroundColor: sideColor,
           transform: [{ skewY: "-45deg" }, { translateY: depth / 2 }],
+          borderTopWidth: 1,
+          borderTopColor: edgeColor,
         }}
       />
-      {/* Top face (the visible step surface) - lighter */}
+      {/* FRONT face (vertical "rise" of the step) — main visible face */}
       <LinearGradient
-        colors={[baseColor, sideColor]}
+        colors={[frontColor, sideColor]}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
         style={{
           position: "absolute",
           left: stair.x,
-          top: stair.y - 6,
-          width: STAIR_W,
-          height: 10,
-          borderTopLeftRadius: 4,
-          borderTopRightRadius: 4,
-          borderWidth: 1,
-          borderColor: "rgba(0,0,0,0.25)",
-        }}
-      />
-      {/* Front face - the visible vertical "rise" of the step */}
-      <LinearGradient
-        colors={[sideColor, darkColor]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={{
-          position: "absolute",
-          left: stair.x,
-          top: stair.y + 4,
+          top: stair.y + 2,
           width: STAIR_W,
           height: STAIR_FRONT_H,
-          borderLeftWidth: 1,
-          borderLeftColor: "rgba(0,0,0,0.4)",
-          borderRightWidth: 1,
-          borderRightColor: "rgba(255,255,255,0.08)",
-          borderBottomLeftRadius: 2,
-          borderBottomRightRadius: 2,
+          borderLeftWidth: 1.5,
+          borderLeftColor: edgeColor,
+          borderRightWidth: 1.5,
+          borderRightColor: edgeColor,
+          borderBottomWidth: 1,
+          borderBottomColor: edgeColor,
+        }}
+      />
+      {/* TOP face (horizontal step surface) — flat on top with highlight strip */}
+      <LinearGradient
+        colors={[highlightColor, topColor, sideColor]}
+        locations={[0, 0.25, 1]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={{
+          position: "absolute",
+          left: stair.x - 2,
+          top: stair.y - 5,
+          width: STAIR_W + 4,
+          height: 10,
+          borderRadius: 2,
+          borderWidth: 1.5,
+          borderColor: edgeColor,
+        }}
+      />
+      {/* Top highlight line (where light hits the front edge of the step) */}
+      <View
+        style={{
+          position: "absolute",
+          left: stair.x + 4,
+          top: stair.y + 3,
+          width: STAIR_W - 8,
+          height: 2,
+          backgroundColor: highlightColor,
+          opacity: 0.5,
+          borderRadius: 1,
         }}
       />
       {/* Power ? marker */}
@@ -894,7 +924,6 @@ function Stair3D({ stair }: { stair: Stair }) {
       {/* FINISH LINE marker at the goal stair */}
       {stair.i === FINISH_LINE_INDEX && (
         <>
-          {/* Pole */}
           <View
             style={{
               position: "absolute",
@@ -905,7 +934,6 @@ function Stair3D({ stair }: { stair: Stair }) {
               backgroundColor: "#FFFFFF",
             }}
           />
-          {/* Checkered flag */}
           <View
             style={{
               position: "absolute",
@@ -927,15 +955,11 @@ function Stair3D({ stair }: { stair: Stair }) {
               return (
                 <View
                   key={k}
-                  style={{
-                    width: 7, height: 12,
-                    backgroundColor: black ? "#000" : "#fff",
-                  }}
+                  style={{ width: 7, height: 12, backgroundColor: black ? "#000" : "#fff" }}
                 />
               );
             })}
           </View>
-          {/* "FINISH" label */}
           <Text
             style={{
               position: "absolute",
@@ -1016,7 +1040,7 @@ function SvgCube3D({
   }, []);
 
   const halfSize = size / 2;
-  const persp = 3.5; // perspective strength (smaller = more dramatic 3D)
+  const persp = 8.0; // higher = more orthographic (cube looks more uniform from all angles)
   const rx = cubeRef.current.rotX;
   const ry = cubeRef.current.rotY;
   const rz = cubeRef.current.rotZ;
@@ -1029,6 +1053,22 @@ function SvgCube3D({
     const f = persp / (persp - z); // perspective: z=+1 closer (bigger), z=-1 farther
     return [x * halfSize * f * scale, y * halfSize * f * scale, z];
   });
+
+  // Compute bounding box & shift so the cube's visual center matches its math center.
+  // Specifically, ensure the visual bottom (max y) aligns with halfSize so the cube
+  // visually sits on its math bottom (stair top).
+  let maxY = -Infinity;
+  let minY = Infinity;
+  for (const p of projected) {
+    if (p[1] > maxY) maxY = p[1];
+    if (p[1] < minY) minY = p[1];
+  }
+  // Shift so visual bottom (maxY) equals math bottom (halfSize * scale)
+  const yOffset = halfSize * scale - maxY;
+  // Apply offset
+  for (const p of projected) {
+    p[1] += yOffset;
+  }
 
   // Compute face data with avg Z for sorting
   const facesData = CUBE_FACES.map((face) => {
