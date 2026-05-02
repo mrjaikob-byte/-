@@ -99,9 +99,8 @@ function buildLevel(rows: string[], opts: {
 }
 
 /**
- * Level 1 - "أزقة بغداد"
- * Wide horizontal level, ground floor with question blocks above,
- * a couple of pipes, some bricks, and a fox + crow.
+ * Level 1 - "أزقة بغداد" - Landscape edition
+ * Height = 8 tiles (fits landscape mobile view), width = 80 tiles wide.
  *
  * Legend:
  *  ' ' = empty
@@ -112,26 +111,17 @@ function buildLevel(rows: string[], opts: {
  *  'F' = flag position
  */
 const L1_ROWS = [
-  "                                                                                                                  ",
-  "                                                                                                                  ",
-  "                                                                                                                  ",
-  "                                                                                                                  ",
-  "                                                                                                                  ",
-  "                                                                                                                  ",
-  "                                                                                                                  ",
-  "                          ?                                                                                       ",
-  "                                                                                                                  ",
-  "             ?BB?B           BBB?BB              ??B               B?B               ?BBB?                        ",
-  "                                                                                                                  ",
-  "                                                                                                                  ",
-  "                                              []                                       []                         ",
-  "                              []              []           []          [][]           [][]                       F",
-  "##############     ###################################################################################################",
-  "##############     ###################################################################################################",
+  "                                                                                                                          ",
+  "                                                                                                                          ",
+  "                                                                                                                          ",
+  "                  ?                          BBB?BB                  ?B               B?B                ?BBB?            ",
+  "                                                                                                                          ",
+  "          ?BB?B                                            []                                  []                       F ",
+  "                              []                          [][]              []          [][]  [][]                       F",
+  "##############     ##############     ###################################################################################",
+  "##############     ##############     ###################################################################################",
 ];
 
-// We need to compute slingshot block positions: first ? in each level gives slingshot.
-// We'll mark the very first ? as slingshot, the rest as dates.
 function findFirstQuestion(rows: string[]): { x: number; y: number } | null {
   for (let y = 0; y < rows.length; y++) {
     const idx = rows[y].indexOf("?");
@@ -143,27 +133,29 @@ function findFirstQuestion(rows: string[]): { x: number; y: number } | null {
 const L1_FIRST_Q = findFirstQuestion(L1_ROWS)!;
 
 export const LEVEL_1: Level = buildLevel(L1_ROWS, {
-  spawn: { x: 2, y: 12 },
+  spawn: { x: 2, y: 6 },
   enemies: [
-    { id: "f1", type: "fox", x: 25, y: 13, vx: -1.5, vy: 0, alive: true, dir: -1 },
-    { id: "c1", type: "crow", x: 50, y: 9, vx: -1.0, vy: 0, alive: true, dir: -1 },
-    { id: "f2", type: "fox", x: 70, y: 13, vx: -1.5, vy: 0, alive: true, dir: -1 },
-    { id: "c2", type: "crow", x: 90, y: 8, vx: -1.0, vy: 0, alive: true, dir: -1 },
-    { id: "f3", type: "fox", x: 100, y: 13, vx: -1.5, vy: 0, alive: true, dir: -1 },
+    { id: "f1", type: "fox", x: 22, y: 6, vx: -1.8, vy: 0, alive: true, dir: -1 },
+    { id: "c1", type: "crow", x: 38, y: 3, vx: -1.2, vy: 0, alive: true, dir: -1 },
+    { id: "f2", type: "fox", x: 50, y: 6, vx: -1.8, vy: 0, alive: true, dir: -1 },
+    { id: "c2", type: "crow", x: 70, y: 2.5, vx: -1.2, vy: 0, alive: true, dir: -1 },
+    { id: "f3", type: "fox", x: 82, y: 6, vx: -1.8, vy: 0, alive: true, dir: -1 },
+    { id: "f4", type: "fox", x: 100, y: 6, vx: -1.8, vy: 0, alive: true, dir: -1 },
   ],
   coins: [
-    { id: "co1", x: 14, y: 8, collected: false },
-    { id: "co2", x: 17, y: 8, collected: false },
-    { id: "co3", x: 30, y: 8, collected: false },
-    { id: "co4", x: 33, y: 8, collected: false },
-    { id: "co5", x: 36, y: 8, collected: false },
-    { id: "co6", x: 50, y: 8, collected: false },
-    { id: "co7", x: 53, y: 8, collected: false },
-    { id: "co8", x: 70, y: 8, collected: false },
-    { id: "co9", x: 73, y: 8, collected: false },
-    { id: "co10", x: 90, y: 8, collected: false },
-    { id: "co11", x: 92, y: 8, collected: false },
-    { id: "co12", x: 94, y: 8, collected: false },
+    { id: "co1", x: 11, y: 2, collected: false },
+    { id: "co2", x: 14, y: 2, collected: false },
+    { id: "co3", x: 17, y: 2, collected: false },
+    { id: "co4", x: 30, y: 2, collected: false },
+    { id: "co5", x: 33, y: 2, collected: false },
+    { id: "co6", x: 36, y: 2, collected: false },
+    { id: "co7", x: 50, y: 2, collected: false },
+    { id: "co8", x: 53, y: 2, collected: false },
+    { id: "co9", x: 70, y: 2, collected: false },
+    { id: "co10", x: 73, y: 2, collected: false },
+    { id: "co11", x: 90, y: 2, collected: false },
+    { id: "co12", x: 92, y: 2, collected: false },
+    { id: "co13", x: 94, y: 2, collected: false },
   ],
   slingshotBlocks: [L1_FIRST_Q], // first ? gives the slingshot
 });
