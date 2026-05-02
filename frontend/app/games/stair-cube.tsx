@@ -23,8 +23,8 @@ const { width: WIN_W, height: WIN_H } = Dimensions.get("window");
 // ========== Constants ==========
 const TILE = 28; // visual unit
 const CUBE_SIZE_BASE = TILE * 1.3;
-const STAIR_W = TILE * 2.2;
-const STAIR_H = TILE * 1.0;
+const STAIR_W = TILE * 1.8;
+const STAIR_H = TILE * 2.6; // much taller stairs (long and thin)
 const TOTAL_STAIRS = 1000;
 const POWERUP_EVERY = 20;
 const START_STAIR = 20;
