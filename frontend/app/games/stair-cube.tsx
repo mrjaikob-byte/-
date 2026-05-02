@@ -152,6 +152,11 @@ export default function StairCube() {
   const [floats, setFloats] = useState<Array<{ id: number; x: number; y: number; text: string; color: string; ttl: number }>>([]);
   const floatIdRef = useRef(0);
 
+  // Viewport tick — increments as the camera moves between stair buckets.
+  // This forces visibleStairs to recompute so stairs appear in real-time during fast flight.
+  const [viewportBucket, setViewportBucket] = useState(0);
+  const lastViewportBucketRef = useRef(0);
+
   // ===== Init =====
   const initGame = useCallback(() => {
     stairsRef.current = buildStairs();
@@ -160,7 +165,8 @@ export default function StairCube() {
     cube.y = s.y - CUBE_SIZE_BASE / 2;
     cube.vx = 0; cube.vy = 0;
     cube.size = CUBE_SIZE_BASE;
-    cube.rotX = 0; cube.rotY = 0; cube.rotZ = 0;
+    // Default isometric tilt so 3 faces are visible at rest (top + front + right)
+    cube.rotX = 0.55; cube.rotY = -0.65; cube.rotZ = 0;
     cube.rotVX = 0; cube.rotVY = 0; cube.rotVZ = 0;
     cube.isBall = false;
     cube.onGround = true;
@@ -182,6 +188,9 @@ export default function StairCube() {
 
     setHud({ score: 0, aimAngle: 0, power: 0, activePower: null, finalScore: 0, highScores: hud.highScores });
     setFloats([]);
+    // Reset viewport tracking so stairs render around START_STAIR immediately
+    lastViewportBucketRef.current = START_STAIR;
+    setViewportBucket(START_STAIR);
     setPhase("aim");
   }, [aim, cube, power, cam, camTX, camTY, cubeTX, cubeTY, hud.highScores]);
 
@@ -332,6 +341,13 @@ export default function StairCube() {
     camTX.setValue(-cam.x);
     camTY.setValue(-cam.y);
 
+    // Update viewport bucket so visibleStairs re-computes when cube moves
+    const newBucket = Math.floor(c.x / STAIR_W);
+    if (newBucket !== lastViewportBucketRef.current) {
+      lastViewportBucketRef.current = newBucket;
+      setViewportBucket(newBucket);
+    }
+
     // --- Push cube transforms to native ---
     cubeTX.setValue(c.x - c.size / 2);
     cubeTY.setValue(c.y - c.size / 2);
@@ -339,24 +355,19 @@ export default function StairCube() {
     cubeScale.setValue(c.size / CUBE_SIZE_BASE);
   };
 
-  // ===== Collision (cube vs stair top + side) =====
+  // ===== Collision (cube vs stair top + side walls) =====
   const collideWithStairs = (c: typeof cube, stairs: Stair[]) => {
     c.onGround = false;
-    // Each stair: top edge at y = stair.y, top surface from x..x+STAIR_W
-    // Side wall: at x = stair.x (left wall) from y = stair.y..stair.y+STAIR_H if stair-1 is to the left and above
-    // Simpler: treat each stair as a rectangle with TOP at y, from x to x+STAIR_W.
-    // The vertical face on the LEFT goes from (stair.y) down to (stair.y + STAIR_H).
     const halfS = c.size / 2;
 
-    // Find candidate stairs near cube
-    const startI = Math.max(0, Math.floor((c.x - 200) / STAIR_W));
-    const endI = Math.min(TOTAL_STAIRS - 1, Math.ceil((c.x + 200) / STAIR_W));
+    // Find candidate stairs near cube — wider window for fast cubes
+    const startI = Math.max(0, Math.floor((c.x - 300) / STAIR_W));
+    const endI = Math.min(TOTAL_STAIRS - 1, Math.ceil((c.x + 300) / STAIR_W));
 
     for (let i = startI; i <= endI; i++) {
       const s = stairs[i];
       if (s.broken) continue;
-      // Stair rectangle: x..x+STAIR_W, y..y+STAIR_H (only top face is real)
-      // Top collision: cube falling, lower edge crosses stair.y
+      // Stair rectangle: x..x+STAIR_W, y..y+infinity (only top face is real)
       const cubeBottom = c.y + halfS;
       const cubeTop = c.y - halfS;
       const cubeLeft = c.x - halfS;
@@ -364,38 +375,39 @@ export default function StairCube() {
       const stairLeft = s.x;
       const stairRight = s.x + STAIR_W;
       const stairTop = s.y;
-      const stairBottom = s.y + 100000; // treat below as solid mass to bottom
+      const stairBottom = s.y + 100000;
 
       const overlapsX = cubeRight > stairLeft && cubeLeft < stairRight;
       const overlapsY = cubeBottom > stairTop && cubeTop < stairBottom;
 
       if (overlapsX && overlapsY) {
-        // Determine collision side by min penetration
+        // Calculate penetration on each side
         const penTop = cubeBottom - stairTop;       // hit top of stair from above
-        const penLeft = cubeRight - stairLeft;      // hit left wall from outside-left
-        // Resolve smallest penetration
-        if (penTop < penLeft && c.vy >= 0) {
-          // Land on top — REAL physics
+        const penLeft = cubeRight - stairLeft;      // hit left wall from outside-left (cube moving right)
+        const penRight = stairRight - cubeLeft;     // hit right wall from outside-right (cube moving left)
+
+        // Check if cube is hitting the TOP face (cube center is above stair top, and falling)
+        // We require that the cube's previous y was above the stair top (use velocity check)
+        const wasAbove = cubeBottom - c.vy * 0.016 < stairTop + 4; // cube was above stair top in previous frame
+
+        if (wasAbove && c.vy >= 0 && penTop < halfS * 2) {
+          // === LAND ON TOP ===
           c.y = stairTop - halfS;
           if (c.vy > 0) {
-            // Restitution along Y (normal direction)
             const bounce = c.isBall ? 0.65 : BOUNCE_DAMP;
             const incomingVy = c.vy;
             c.vy = -c.vy * bounce;
-            // Tangential friction reduces vx slightly on impact
             c.vx *= 0.92;
-            // Add angular impulse based on impact (the cube tumbles in 3D)
-            // Hitting top while moving right → rotate forward (X axis)
+            // Angular impulse from impact (3D tumble)
             const impactStrength = Math.min(1, incomingVy / 700);
             c.rotVX += (c.vx / c.size) * 8 * impactStrength;
             c.rotVZ += (Math.random() - 0.5) * 4 * impactStrength;
             c.rotVY += (Math.random() - 0.5) * 2 * impactStrength;
-            // Stop bouncing if velocity too low (settle on ground)
+            // Settle if low velocity
             if (Math.abs(c.vy) < 50) {
               c.vy = 0;
               c.onGround = true;
             }
-            // Haptic feedback proportional to impact
             if (impactStrength > 0.3) {
               try { Haptics.impactAsync(impactStrength > 0.7 ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Medium); } catch {}
             }
@@ -404,23 +416,33 @@ export default function StairCube() {
           if (!s.touched) {
             s.touched = true;
             try { Haptics.selectionAsync(); } catch {}
-            // Power-up stair?
             if (s.isPower && phase === "flight") {
               triggerRandomPower(s);
             }
           }
           c.onStair = s.i;
-        } else if (penLeft < penTop && c.vx > 0) {
-          // Hit left wall (vertical face) — bounce back
-          c.x = stairLeft - halfS;
-          const incomingVx = c.vx;
-          c.vx = -c.vx * BOUNCE_DAMP;
-          // Reduce vy slightly (friction at wall)
-          c.vy *= 0.95;
-          // Angular impulse from wall hit (rotate around Y axis)
-          c.rotVY += (incomingVx / c.size) * 6;
-          c.rotVZ -= (incomingVx / c.size) * 3;
-          try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+        } else {
+          // === HIT A SIDE WALL ===
+          // Decide which wall by min penetration of the two horizontal walls
+          if (penLeft < penRight && c.vx > 0) {
+            // Cube moving right, hit LEFT wall of this stair
+            c.x = stairLeft - halfS;
+            const incomingVx = c.vx;
+            c.vx = -c.vx * BOUNCE_DAMP;
+            c.vy *= 0.95;
+            c.rotVY += (incomingVx / c.size) * 6;
+            c.rotVZ -= (incomingVx / c.size) * 3;
+            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+          } else if (penRight < penLeft && c.vx < 0) {
+            // Cube moving LEFT, hit RIGHT wall of this stair (the visible step "rise")
+            c.x = stairRight + halfS;
+            const incomingVx = c.vx;
+            c.vx = -c.vx * BOUNCE_DAMP;
+            c.vy *= 0.95;
+            c.rotVY -= (Math.abs(incomingVx) / c.size) * 6;
+            c.rotVZ += (Math.abs(incomingVx) / c.size) * 3;
+            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+          }
         }
       }
     }
@@ -510,16 +532,19 @@ export default function StairCube() {
 
   // ===== RENDER ==========
 
-  // Determine which stairs are visible
+  // Determine which stairs are visible — recomputes when cube crosses stair boundaries
   const visibleStairs = useMemo(() => {
     const out: Stair[] = [];
     if (!stairsRef.current.length) return out;
-    const startI = Math.max(0, Math.floor(cam.x / STAIR_W) - 2);
-    const endI = Math.min(TOTAL_STAIRS - 1, startI + Math.ceil(WIN_W / STAIR_W) + 6);
+    // Wider buffer to handle fast cube movement and avoid pop-in
+    const centerI = lastViewportBucketRef.current;
+    const visible = Math.ceil(WIN_W / STAIR_W) + 12;
+    const startI = Math.max(0, centerI - 6);
+    const endI = Math.min(TOTAL_STAIRS - 1, startI + visible);
     for (let i = startI; i <= endI; i++) out.push(stairsRef.current[i]);
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hud.score, phase]);
+  }, [hud.score, phase, viewportBucket]);
 
   return (
     <View style={styles.root}>
@@ -608,35 +633,25 @@ export default function StairCube() {
           </Animated.View>
         )}
 
-        {/* Aim arrow - bigger & glowing, with trajectory dots */}
+        {/* Aim arrow - elegant SVG design with glow */}
         {phase === "aim" && (
           <Animated.View
             style={{
               position: "absolute",
-              left: cube.x - 60,
-              top: cube.y - 180,
-              width: 120,
-              height: 140,
+              left: cube.x - 50,
+              top: cube.y - 200,
+              width: 100,
+              height: 160,
               alignItems: "center",
               justifyContent: "flex-end",
               transform: [
-                { translateY: 70 },
+                { translateY: 80 },
                 { rotate: arrowAngle.interpolate({ inputRange: [-1.5, 1.5], outputRange: ["-86deg", "86deg"] }) },
-                { translateY: -70 },
+                { translateY: -80 },
               ],
             }}
           >
-            {/* Trajectory dots */}
-            <View style={{ width: 16, height: 8, borderRadius: 8, backgroundColor: "#FBBF24", opacity: 0.35, marginBottom: 6 }} />
-            <View style={{ width: 14, height: 7, borderRadius: 8, backgroundColor: "#FBBF24", opacity: 0.5, marginBottom: 6 }} />
-            <View style={{ width: 12, height: 6, borderRadius: 8, backgroundColor: "#FBBF24", opacity: 0.7, marginBottom: 8 }} />
-            {/* Big arrowhead */}
-            <LinearGradient
-              colors={["#FDE047", "#F59E0B", "#B45309"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-              style={styles.bigArrowHead}
-            />
+            <ArrowIndicator />
           </Animated.View>
         )}
 
@@ -1008,10 +1023,10 @@ function SvgCube3D({
   const dynamicSize = cubeRef.current.size;
   const scale = dynamicSize / size;
 
-  // Project all 8 vertices
+  // Project all 8 vertices (viewer at +z looking toward -z; +z is closer = bigger)
   const projected: [number, number, number][] = CUBE_VERTS.map((v) => {
     const [x, y, z] = rotateXYZ(v, rx, ry, rz);
-    const f = persp / (persp + z); // perspective foreshortening
+    const f = persp / (persp - z); // perspective: z=+1 closer (bigger), z=-1 farther
     return [x * halfSize * f * scale, y * halfSize * f * scale, z];
   });
 
@@ -1027,11 +1042,11 @@ function SvgCube3D({
     return { face, pts, avgZ, normalZ };
   });
 
-  // Sort back-to-front (largest avgZ = farthest behind = drawn first)
-  facesData.sort((a, b) => b.avgZ - a.avgZ);
+  // Sort back-to-front: smallest avgZ (farthest = z=-1 area) drawn FIRST
+  facesData.sort((a, b) => a.avgZ - b.avgZ);
 
-  // Skip back-facing faces (normalZ <= 0 means facing away in screen space)
-  const visible = facesData.filter((f) => f.normalZ > 0);
+  // Draw ALL 6 faces (no back-face culling) so cube is never "open"
+  const facesToRender = facesData;
 
   // Determine main color
   const mainColor = hasPower && powerColor ? powerColor : "#EC4899"; // pink
@@ -1056,7 +1071,7 @@ function SvgCube3D({
   const viewSize = size * 1.6; // viewport with padding for perspective
   return (
     <Svg width={viewSize} height={viewSize} viewBox={`${-viewSize / 2} ${-viewSize / 2} ${viewSize} ${viewSize}`}>
-      {visible.map((f, i) => {
+      {facesToRender.map((f, i) => {
         const points = f.pts.map((p) => `${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(" ");
         // Lambert-like shading: dot product with light direction (front-top)
         const lightFactor = Math.max(0.55, Math.min(1, 0.55 + (f.normalZ / (size * size)) * 0.6));
@@ -1094,92 +1109,101 @@ function applyShade(hex: string, factor: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
-// ===== Cube component (legacy isometric look - kept as fallback) =====
-function Cube3D({ size, hasPower, powerColor }: { size: number; hasPower: boolean; powerColor: string }) {
-  // Render the cube with 3 visible isometric faces (top, front, right) - looks truly 3D.
+// ===== Aim Arrow Indicator (sleek SVG design with glow) =====
+function ArrowIndicator() {
+  // Pulsing glow animation
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 600, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+        Animated.timing(pulse, { toValue: 0, duration: 600, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+      ])
+    ).start();
+  }, [pulse]);
+  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.1] });
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] });
+
+  return (
+    <Animated.View style={{ alignItems: "center", justifyContent: "flex-end", transform: [{ scale }], opacity }}>
+      <Svg width={70} height={140} viewBox="0 0 70 140">
+        <Defs>
+          <SvgLG id="arrowGrad" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor="#FEF3C7" stopOpacity="1" />
+            <Stop offset="0.4" stopColor="#FBBF24" stopOpacity="1" />
+            <Stop offset="1" stopColor="#D97706" stopOpacity="1" />
+          </SvgLG>
+          <SvgLG id="arrowGlow" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor="#FBBF24" stopOpacity="0" />
+            <Stop offset="1" stopColor="#FBBF24" stopOpacity="0.5" />
+          </SvgLG>
+        </Defs>
+        {/* Trailing trail (3 fading rectangles) */}
+        <Polygon points="32,128 38,128 38,118 32,118" fill="#FBBF24" fillOpacity="0.25" />
+        <Polygon points="31,114 39,114 39,102 31,102" fill="#FBBF24" fillOpacity="0.4" />
+        <Polygon points="30,98 40,98 40,84 30,84" fill="#FBBF24" fillOpacity="0.6" />
+        {/* Main arrow body (rectangle stem + triangle head) */}
+        <Polygon
+          points="28,80 42,80 42,30 55,30 35,2 15,30 28,30"
+          fill="url(#arrowGrad)"
+          stroke="#92400E"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+        {/* Inner highlight on the head */}
+        <Polygon
+          points="35,10 45,28 25,28"
+          fill="#FEF3C7"
+          fillOpacity="0.6"
+        />
+      </Svg>
+    </Animated.View>
+  );
+}
+
+// ===== Legacy isometric Cube (unused fallback, kept for reference) =====
+function Cube3DLegacy({ size, hasPower, powerColor }: { size: number; hasPower: boolean; powerColor: string }) {
   const main = hasPower ? powerColor : "#F472B6";
   const top = hasPower ? lighten(powerColor) : "#FBCFE8";
   const right = hasPower ? darken(powerColor) : "#9D174D";
   const edge = hasPower ? darken(powerColor, 0.5) : "#500724";
-  const dotColor = hasPower ? "#FFFFFF" : "#FFFFFF";
-
-  // Isometric depth offset
+  const dotColor = "#FFFFFF";
   const dx = size * 0.22;
   const dy = size * 0.22;
-
   return (
     <View style={{ width: size + dx, height: size + dy }}>
-      {/* TOP face - parallelogram via skewX */}
       <View
         style={{
-          position: "absolute",
-          left: dx,
-          top: 0,
-          width: size,
-          height: dy,
+          position: "absolute", left: dx, top: 0, width: size, height: dy,
           backgroundColor: top,
           transform: [{ skewX: "-45deg" }, { translateX: -dy / 2 }],
-          borderTopWidth: 1.5,
-          borderTopColor: edge,
-          borderLeftWidth: 1.5,
-          borderLeftColor: edge,
+          borderTopWidth: 1.5, borderTopColor: edge,
+          borderLeftWidth: 1.5, borderLeftColor: edge,
         }}
       />
-      {/* RIGHT face - parallelogram via skewY */}
       <View
         style={{
-          position: "absolute",
-          left: size,
-          top: dy,
-          width: dx,
-          height: size,
+          position: "absolute", left: size, top: dy, width: dx, height: size,
           backgroundColor: right,
           transform: [{ skewY: "-45deg" }, { translateY: -dx / 2 }],
-          borderTopWidth: 1.5,
-          borderTopColor: edge,
-          borderRightWidth: 1.5,
-          borderRightColor: edge,
+          borderTopWidth: 1.5, borderTopColor: edge,
+          borderRightWidth: 1.5, borderRightColor: edge,
         }}
       />
-      {/* FRONT face - solid square with shading & dot */}
       <View
         style={{
-          position: "absolute",
-          left: 0,
-          top: dy,
-          width: size,
-          height: size,
+          position: "absolute", left: 0, top: dy, width: size, height: size,
           backgroundColor: main,
-          borderWidth: 1.5,
-          borderColor: edge,
-          alignItems: "center",
-          justifyContent: "center",
+          borderWidth: 1.5, borderColor: edge,
+          alignItems: "center", justifyContent: "center",
           borderRadius: 2,
         }}
       >
-        {/* Highlight on top-left */}
         <View
           style={{
-            position: "absolute",
-            top: 3,
-            left: 3,
-            width: size * 0.45,
-            height: size * 0.45,
-            backgroundColor: "#FFFFFF",
-            opacity: 0.18,
-            borderRadius: 4,
-          }}
-        />
-        {/* Center pip */}
-        <View
-          style={{
-            width: size * 0.28,
-            height: size * 0.28,
-            backgroundColor: dotColor,
-            borderRadius: 100,
-            opacity: 0.95,
-            borderWidth: 2,
-            borderColor: edge,
+            width: size * 0.28, height: size * 0.28,
+            backgroundColor: dotColor, borderRadius: 100,
+            borderWidth: 2, borderColor: edge,
           }}
         />
       </View>
