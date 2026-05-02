@@ -78,6 +78,16 @@ const GAMES: Game[] = [
     badge: "جديد",
   },
   {
+    id: "stair-cube",
+    name: "مكعب الدرج",
+    description: "ارمِ المكعب على الدرج واجمع أكبر سكور",
+    icon: "cube",
+    accent: "#F472B6",
+    accent2: "#9D174D",
+    route: "/games/stair-cube",
+    available: true,
+  },
+  {
     id: "soon-1",
     name: "قريباً",
     description: "ألعاب جديدة في الطريق",
