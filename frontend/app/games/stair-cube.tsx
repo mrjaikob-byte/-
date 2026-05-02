@@ -22,18 +22,19 @@ const { width: WIN_W, height: WIN_H } = Dimensions.get("window");
 
 // ========== Constants ==========
 const TILE = 28; // visual unit
-const CUBE_SIZE_BASE = TILE * 1.5;
-const STAIR_W = TILE * 1.6;
-const STAIR_H = TILE * 5.0; // VERY TALL stairs (long and thin)
+const CUBE_SIZE_BASE = TILE * 1.7;
+const STAIR_W = TILE * 3.2; // wider step (like a real staircase)
+const STAIR_H = TILE * 2.0; // shorter rise (proper stair proportions)
+const STAIR_FRONT_H = STAIR_H * 1.0; // visible front face height
 const TOTAL_STAIRS = 1000;
 const POWERUP_EVERY = 20;
 const START_STAIR = 20;
 const FINISH_LINE_INDEX = TOTAL_STAIRS - 1; // stair "1" from the end = the goal
 
 // Physics
-const GRAVITY = 2400; // px/s²  - stronger for taller stairs
-const BOUNCE_DAMP = 0.5;
-const FRICTION_GROUND = 1.6; // lower = more sliding
+const GRAVITY = 1500; // px/s²
+const BOUNCE_DAMP = 0.45;
+const FRICTION_GROUND = 1.4; // lower = more sliding
 const AIM_SPEED = 1.6; // rad/s pendulum
 const STOP_THRESHOLD_VEL = 8; // below this is "stopped"
 const STOP_THRESHOLD_TIME = 0.9; // seconds of stopped → end game
@@ -85,7 +86,8 @@ function buildStairs(): Stair[] {
       i,
       x: i * STAIR_W,
       y: i * STAIR_H,
-      isPower: i > 0 && i % POWERUP_EVERY === 0,
+      // skip the start stair from being a power stair (don't give free power on launch)
+      isPower: i > 0 && i !== START_STAIR && i % POWERUP_EVERY === 0,
       touched: false,
       broken: false,
     });
@@ -271,15 +273,15 @@ export default function StairCube() {
         collideWithStairs(c, stairsRef.current);
       }
 
-      // Rotation (3D visual): match angular velocity to linear
+      // Rotation: ONLY rotate around Z (rolling) so cube keeps 3D isometric look
+      // rotVZ is proportional to horizontal velocity (rolling speed)
+      c.rotVZ = (c.vx / c.size) * 0.9;
       c.rotZ += c.rotVZ * dt;
-      c.rotX += c.rotVX * dt;
-      c.rotY += c.rotVY * dt;
-
-      // Air friction on rotation
-      c.rotVX *= 0.995;
-      c.rotVY *= 0.995;
-      c.rotVZ *= 0.995;
+      // Keep X/Y rotation at zero so cube never appears flat
+      c.rotX = 0;
+      c.rotY = 0;
+      c.rotVX = 0;
+      c.rotVY = 0;
 
       // Ground friction (sliding feel - low friction)
       if (c.onGround) {
@@ -333,8 +335,6 @@ export default function StairCube() {
     // --- Push cube transforms to native ---
     cubeTX.setValue(c.x - c.size / 2);
     cubeTY.setValue(c.y - c.size / 2);
-    cubeRX.setValue(c.rotX);
-    cubeRY.setValue(c.rotY);
     cubeRZ.setValue(c.rotZ);
     cubeScale.setValue(c.size / CUBE_SIZE_BASE);
   };
@@ -382,9 +382,6 @@ export default function StairCube() {
             // Bounce
             const bounce = c.isBall ? 0.7 : BOUNCE_DAMP;
             c.vy = -c.vy * bounce;
-            // Add rotation from impact
-            c.rotVZ += (Math.random() - 0.5) * 6;
-            c.rotVX += Math.abs(c.vx) * 0.02;
             // Trigger small bounce only if moving fast enough
             if (Math.abs(c.vy) < 60) c.vy = 0;
             if (Math.abs(c.vy) < 60) {
@@ -405,7 +402,6 @@ export default function StairCube() {
           // Hit left wall (treat as bounce off vertical surface)
           c.x = stairLeft - halfS;
           c.vx = -c.vx * BOUNCE_DAMP;
-          c.rotVZ -= 4;
         }
       }
     }
@@ -461,9 +457,9 @@ export default function StairCube() {
       const dirY = -Math.cos(angle);
       cube.vx = dirX * speed;
       cube.vy = dirY * speed;
-      cube.rotVZ = (Math.random() - 0.5) * 8;
-      cube.rotVX = power.value * 6;
-      cube.rotVY = (Math.random() - 0.5) * 4;
+      cube.rotVZ = 0; // Z rotation will follow vx in flight loop
+      cube.rotVX = 0;
+      cube.rotVY = 0;
       try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
       setPhase("flight");
       return;
@@ -577,10 +573,7 @@ export default function StairCube() {
               transform: [
                 { translateX: cubeTX },
                 { translateY: cubeTY },
-                { perspective: 800 },
-                { rotateX: cubeRX.interpolate({ inputRange: [0, 2 * Math.PI], outputRange: ["0deg", "360deg"] }) },
-                { rotateY: cubeRY.interpolate({ inputRange: [0, 2 * Math.PI], outputRange: ["0deg", "360deg"] }) },
-                { rotateZ: cubeRZ.interpolate({ inputRange: [0, 2 * Math.PI], outputRange: ["0deg", "360deg"] }) },
+                { rotate: cubeRZ.interpolate({ inputRange: [0, 2 * Math.PI], outputRange: ["0deg", "360deg"] }) },
                 { scale: cubeScale },
               ],
             }}
@@ -589,24 +582,35 @@ export default function StairCube() {
           </Animated.View>
         )}
 
-        {/* Aim arrow */}
+        {/* Aim arrow - bigger & glowing, with trajectory dots */}
         {phase === "aim" && (
           <Animated.View
             style={{
               position: "absolute",
-              left: cube.x - 4,
-              top: cube.y - 110,
-              width: 8,
-              height: 90,
+              left: cube.x - 60,
+              top: cube.y - 180,
+              width: 120,
+              height: 140,
+              alignItems: "center",
+              justifyContent: "flex-end",
               transform: [
-                { translateY: 45 },
+                { translateY: 70 },
                 { rotate: arrowAngle.interpolate({ inputRange: [-1.5, 1.5], outputRange: ["-86deg", "86deg"] }) },
-                { translateY: -45 },
+                { translateY: -70 },
               ],
             }}
           >
-            <View style={styles.arrowStem} />
-            <View style={styles.arrowHead} />
+            {/* Trajectory dots */}
+            <View style={{ width: 16, height: 8, borderRadius: 8, backgroundColor: "#FBBF24", opacity: 0.35, marginBottom: 6 }} />
+            <View style={{ width: 14, height: 7, borderRadius: 8, backgroundColor: "#FBBF24", opacity: 0.5, marginBottom: 6 }} />
+            <View style={{ width: 12, height: 6, borderRadius: 8, backgroundColor: "#FBBF24", opacity: 0.7, marginBottom: 8 }} />
+            {/* Big arrowhead */}
+            <LinearGradient
+              colors={["#FDE047", "#F59E0B", "#B45309"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.bigArrowHead}
+            />
           </Animated.View>
         )}
 
@@ -745,7 +749,7 @@ function Stair3D({ stair }: { stair: Stair }) {
           left: stair.x,
           top: stair.y,
           width: STAIR_W,
-          height: STAIR_H,
+          height: STAIR_FRONT_H,
           opacity: 0.15,
           borderColor: "#7F1D1D",
           borderWidth: 1,
@@ -755,11 +759,26 @@ function Stair3D({ stair }: { stair: Stair }) {
       />
     );
   }
-  const baseColor = stair.isPower ? "#FBBF24" : stair.touched ? "#10B981" : "#6366F1";
-  const sideColor = stair.isPower ? "#B45309" : stair.touched ? "#065F46" : "#3730A3";
+  const baseColor = stair.isPower ? "#FBBF24" : stair.touched ? "#34D399" : "#818CF8";
+  const sideColor = stair.isPower ? "#B45309" : stair.touched ? "#047857" : "#4338CA";
+  const darkColor = stair.isPower ? "#78350F" : stair.touched ? "#064E3B" : "#312E81";
+  // Isometric depth for 3D look on stair
+  const depth = STAIR_W * 0.18;
   return (
     <>
-      {/* Top face */}
+      {/* Right (depth) face - parallelogram giving 3D look */}
+      <View
+        style={{
+          position: "absolute",
+          left: stair.x + STAIR_W,
+          top: stair.y - depth,
+          width: depth,
+          height: STAIR_FRONT_H + depth,
+          backgroundColor: darkColor,
+          transform: [{ skewY: "-45deg" }, { translateY: depth / 2 }],
+        }}
+      />
+      {/* Top face (the visible step surface) - lighter */}
       <LinearGradient
         colors={[baseColor, sideColor]}
         start={{ x: 0, y: 0 }}
@@ -769,23 +788,30 @@ function Stair3D({ stair }: { stair: Stair }) {
           left: stair.x,
           top: stair.y - 6,
           width: STAIR_W,
-          height: 8,
-          borderRadius: 3,
+          height: 10,
+          borderTopLeftRadius: 4,
+          borderTopRightRadius: 4,
+          borderWidth: 1,
+          borderColor: "rgba(0,0,0,0.25)",
         }}
       />
-      {/* Front face (vertical body, descends infinitely down visually) */}
-      <View
+      {/* Front face - the visible vertical "rise" of the step */}
+      <LinearGradient
+        colors={[sideColor, darkColor]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
         style={{
           position: "absolute",
           left: stair.x,
-          top: stair.y,
+          top: stair.y + 4,
           width: STAIR_W,
-          height: STAIR_H + 4,
-          backgroundColor: sideColor,
-          borderTopWidth: 2,
-          borderTopColor: baseColor,
+          height: STAIR_FRONT_H,
           borderLeftWidth: 1,
-          borderLeftColor: "rgba(0,0,0,0.3)",
+          borderLeftColor: "rgba(0,0,0,0.4)",
+          borderRightWidth: 1,
+          borderRightColor: "rgba(255,255,255,0.08)",
+          borderBottomLeftRadius: 2,
+          borderBottomRightRadius: 2,
         }}
       />
       {/* Power ? marker */}
@@ -794,7 +820,7 @@ function Stair3D({ stair }: { stair: Stair }) {
           style={{
             position: "absolute",
             left: stair.x,
-            top: stair.y - 28,
+            top: stair.y - 32,
             width: STAIR_W,
             textAlign: "center",
             fontSize: 22,
@@ -812,13 +838,13 @@ function Stair3D({ stair }: { stair: Stair }) {
           style={{
             position: "absolute",
             left: stair.x,
-            top: stair.y + STAIR_H / 2,
+            top: stair.y + STAIR_FRONT_H / 2 - 6,
             width: STAIR_W,
             textAlign: "center",
             color: "#fff",
             fontSize: 11,
             fontWeight: "700",
-            opacity: 0.7,
+            opacity: 0.55,
           }}
         >
           {stair.i}
@@ -1043,6 +1069,19 @@ const styles = StyleSheet.create({
     borderLeftColor: "transparent", borderRightColor: "transparent",
     borderBottomColor: "#FBBF24",
     transform: [{ rotate: "180deg" }],
+  },
+  bigArrowHead: {
+    width: 38,
+    height: 56,
+    // create a tall pointing-up arrow shape via clipPath-like trick:
+    // a tall trapezoid with rounded top creates a clean arrow look
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderBottomLeftRadius: 6,
+    borderBottomRightRadius: 6,
+    boxShadow: "0px 0px 18px rgba(251,191,36,0.85)",
+    borderWidth: 2,
+    borderColor: "#FEF3C7",
   },
 
   powerTrack: {
