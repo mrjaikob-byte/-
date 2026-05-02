@@ -22,7 +22,8 @@ const { width: WIN_W, height: WIN_H } = Dimensions.get("window");
 
 // ========== Constants ==========
 const TILE = 28; // visual unit
-const CUBE_SIZE_BASE = TILE * 1.8;
+const CUBE_SIZE_BASE = TILE * 0.9; // 50% smaller cube
+const CUBE_RENDER_SIZE = CUBE_SIZE_BASE * 4; // bigger render area to accommodate bigCube power-up scaling
 const STAIR_W = TILE * 5.0; // VERY wide step (long horizontally)
 const STAIR_H = TILE * 1.5; // short rise (short vertically)
 const STAIR_FRONT_H = STAIR_H * 1.0;
@@ -157,6 +158,10 @@ export default function StairCube() {
   const [viewportBucket, setViewportBucket] = useState(0);
   const lastViewportBucketRef = useRef(0);
 
+  // World scale (zoom-out when cube moves fast)
+  const worldScale = useRef(new Animated.Value(1)).current;
+  const currentScaleRef = useRef(1);
+
   // ===== Init =====
   const initGame = useCallback(() => {
     stairsRef.current = buildStairs();
@@ -180,11 +185,14 @@ export default function StairCube() {
 
     // Snap camera to cube immediately so it's on screen on first frame
     cam.x = cube.x - WIN_W / 2;
-    cam.y = cube.y - WIN_H * 0.45;
+    cam.y = cube.y - WIN_H / 2;
     camTX.setValue(-cam.x);
     camTY.setValue(-cam.y);
     cubeTX.setValue(cube.x - cube.size / 2);
     cubeTY.setValue(cube.y - cube.size / 2);
+    // Reset world scale
+    currentScaleRef.current = 1;
+    worldScale.setValue(1);
 
     setHud({ score: 0, aimAngle: 0, power: 0, activePower: null, finalScore: 0, highScores: hud.highScores });
     setFloats([]);
@@ -273,13 +281,63 @@ export default function StairCube() {
 
       // Integrate (sub-stepped to prevent tunneling)
       const speed = Math.hypot(c.vx, c.vy);
-      const maxStep = c.size * 0.25; // never move more than 25% of cube size per substep
+      const maxStep = c.size * 0.25;
       const steps = Math.max(1, Math.ceil((speed * dt) / maxStep));
       const sdt = dt / steps;
       for (let i = 0; i < steps; i++) {
         c.x += c.vx * sdt;
         c.y += c.vy * sdt;
         collideWithStairs(c, stairsRef.current);
+      }
+
+      // === EDGE TUMBLE PHYSICS (real-cube behavior on stairs) ===
+      // When cube has settled on a stair, check if it's balanced or on an edge
+      if (c.onGround && c.onStair >= 0 && Math.abs(c.vy) < 5) {
+        const s = stairsRef.current[c.onStair];
+        const stairLeft = s.x;
+        const stairRight = s.x + STAIR_W;
+        const halfS = c.size / 2;
+        const tipMargin = halfS * 0.5; // how close to edge before it tips
+
+        // Cube center past right edge → tips over right (into next stair)
+        if (c.x > stairRight - tipMargin) {
+          // Apply rotational gravity around the right corner
+          const overhang = c.x - (stairRight - tipMargin);
+          const torque = overhang * 6; // proportional torque
+          c.rotVZ += torque * dt;
+          // Once tipped enough, push off
+          if (c.rotZ > 0.4 || c.x > stairRight) {
+            c.onGround = false;
+            c.vy = Math.max(c.vy, 80);
+            c.vx = Math.max(c.vx, 60);
+          }
+        }
+        // Cube center past left edge → tips over left
+        else if (c.x < stairLeft + tipMargin) {
+          const overhang = (stairLeft + tipMargin) - c.x;
+          const torque = overhang * 6;
+          c.rotVZ -= torque * dt;
+          if (c.rotZ < -0.4 || c.x < stairLeft) {
+            c.onGround = false;
+            c.vy = Math.max(c.vy, 80);
+            c.vx = Math.min(c.vx, -60);
+          }
+        }
+        // Cube fully supported → SETTLE: snap rotation to nearest 90°
+        else {
+          const TWO_PI = Math.PI * 2;
+          const QUARTER = Math.PI / 2;
+          const targetZ = Math.round(c.rotZ / QUARTER) * QUARTER;
+          c.rotZ += (targetZ - c.rotZ) * Math.min(1, dt * 5);
+          c.rotVZ *= 0.7;
+          // Smoothly return to default isometric tilt for X & Y
+          c.rotX += (0.55 - c.rotX) * Math.min(1, dt * 3);
+          c.rotY += (-0.65 - c.rotY) * Math.min(1, dt * 3);
+          c.rotVX *= 0.85;
+          c.rotVY *= 0.85;
+          // Apply sliding friction on horizontal velocity (very light)
+          c.vx *= Math.exp(-FRICTION_GROUND * dt);
+        }
       }
 
       // 3D Rotation update from impacts/rolling
@@ -333,13 +391,22 @@ export default function StairCube() {
       }
     }
 
-    // --- Camera follows cube ---
+    // --- Camera follows cube — keep cube centered on screen ---
     const targetCamX = c.x - WIN_W / 2;
-    const targetCamY = c.y - WIN_H * 0.45;
-    cam.x += (targetCamX - cam.x) * Math.min(1, dt * 5);
-    cam.y += (targetCamY - cam.y) * Math.min(1, dt * 5);
+    const targetCamY = c.y - WIN_H / 2; // perfect center vertically
+    cam.x += (targetCamX - cam.x) * Math.min(1, dt * 6);
+    cam.y += (targetCamY - cam.y) * Math.min(1, dt * 6);
     camTX.setValue(-cam.x);
     camTY.setValue(-cam.y);
+
+    // --- Speed-based zoom: faster = pull camera back (smaller scale) ---
+    const speedNow = Math.hypot(c.vx, c.vy);
+    // Map speed [0..2200] → scale [1.0..0.5]
+    let targetScale = 1 - Math.min(1, Math.max(0, speedNow - 400) / 1800) * 0.5;
+    // Smoothly approach target scale
+    const newScale = currentScaleRef.current + (targetScale - currentScaleRef.current) * Math.min(1, dt * 3);
+    currentScaleRef.current = newScale;
+    worldScale.setValue(newScale);
 
     // Update viewport bucket so visibleStairs re-computes when cube moves
     const newBucket = Math.floor(c.x / STAIR_W);
@@ -584,7 +651,11 @@ export default function StairCube() {
         ))}
       </View>
 
-      {/* World container (translated by camera) */}
+      {/* World container (translated by camera, scaled by speed) */}
+      <Animated.View
+        style={[StyleSheet.absoluteFill, { transform: [{ scale: worldScale }] }]}
+        pointerEvents="none"
+      >
       <Animated.View
         style={[StyleSheet.absoluteFill, { transform: [{ translateX: camTX }, { translateY: camTY }] }]}
         pointerEvents="none"
@@ -622,10 +693,10 @@ export default function StairCube() {
           <Animated.View
             style={{
               position: "absolute",
-              width: CUBE_SIZE_BASE * 1.8,
-              height: CUBE_SIZE_BASE * 1.8,
-              marginLeft: -CUBE_SIZE_BASE * 0.4,
-              marginTop: -CUBE_SIZE_BASE * 0.55,
+              width: CUBE_RENDER_SIZE,
+              height: CUBE_RENDER_SIZE,
+              marginLeft: -CUBE_RENDER_SIZE / 2 + CUBE_SIZE_BASE / 2,
+              marginTop: -CUBE_RENDER_SIZE / 2 + CUBE_SIZE_BASE / 2,
               transform: [
                 { translateX: cubeTX },
                 { translateY: cubeTY },
@@ -636,6 +707,7 @@ export default function StairCube() {
           >
             <SvgCube3D
               size={CUBE_SIZE_BASE}
+              renderSize={CUBE_RENDER_SIZE}
               cubeRef={{ current: cube as any }}
               hasPower={!!hud.activePower}
               powerColor={hud.activePower ? POWER_LABELS[hud.activePower.type].color : ""}
@@ -689,6 +761,7 @@ export default function StairCube() {
             <Text style={styles.powerLabel}>اضغط لتحديد القوة</Text>
           </View>
         )}
+      </Animated.View>
       </Animated.View>
 
       {/* Tap surface */}
@@ -1018,11 +1091,13 @@ function rotateXYZ(p: [number, number, number], rx: number, ry: number, rz: numb
 
 function SvgCube3D({
   size,
+  renderSize,
   cubeRef,
   hasPower,
   powerColor,
 }: {
   size: number;
+  renderSize: number;
   cubeRef: React.MutableRefObject<{ rotX: number; rotY: number; rotZ: number; size: number; isBall: boolean }>;
   hasPower: boolean;
   powerColor: string;
@@ -1107,13 +1182,12 @@ function SvgCube3D({
     }
   };
 
-  // Render via SVG. Box is centered at (0,0).
-  const viewSize = size * 1.6; // viewport with padding for perspective
+  // Render via SVG. Box is centered in a renderSize area; math center = (0,0).
+  // The math bottom (halfSize) should align with the View's center (which is now CUBE_SIZE_BASE/2 above the renderSize bottom)
   return (
-    <Svg width={viewSize} height={viewSize} viewBox={`${-viewSize / 2} ${-viewSize / 2} ${viewSize} ${viewSize}`}>
+    <Svg width={renderSize} height={renderSize} viewBox={`${-renderSize / 2} ${-renderSize / 2} ${renderSize} ${renderSize}`}>
       {facesToRender.map((f, i) => {
         const points = f.pts.map((p) => `${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(" ");
-        // Lambert-like shading: dot product with light direction (front-top)
         const lightFactor = Math.max(0.55, Math.min(1, 0.55 + (f.normalZ / (size * size)) * 0.6));
         const fill = applyShade(faceColor(f.face.name), lightFactor);
         return (
