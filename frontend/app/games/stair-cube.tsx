@@ -38,12 +38,12 @@ const FINISH_LINE_INDEX = TOTAL_STAIRS - 1;
 
 // Physics
 const GRAVITY = 1400; // px/s²
-const BOUNCE_DAMP = 0.34; // vertical restitution (top landings)
-const BOUNCE_WALL = 0.55; // horizontal wall restitution — strong but controlled
-const FRICTION_GROUND = 0.08; // very very low — MAXIMUM sliding
+const BOUNCE_DAMP = 0.34;
+const BOUNCE_WALL = 0.55;
+const FRICTION_GROUND = 0.035; // EXTREMELY low — cube slides almost forever
 const AIM_SPEED = 1.6;
-const STOP_THRESHOLD_VEL = 6;
-const STOP_THRESHOLD_TIME = 1.4;
+const STOP_THRESHOLD_VEL = 4;
+const STOP_THRESHOLD_TIME = 1.5;
 
 // Power-ups
 type PowerType =
@@ -320,27 +320,29 @@ export default function StairCube() {
         const overhangLeft = stairLeft - (c.x - halfS);
 
         if (overhangRight > 0) {
-          // Right edge of cube is past right edge of stair → tip/fall off the right
-          // Gravity creates torque around the right corner of the stair (pivot point).
+          // Right edge of cube past stair edge → gravity creates torque around pivot (stair corner)
+          // Torque = horizontal distance from pivot to center of mass × gravity
           const tipFactor = Math.min(1, overhangRight / halfS);
-          c.rotVZ += tipFactor * 10 * dt * 60; // physical torque from gravity
-          // Once overhang > 25% of cube, detach cleanly and let gravity take over
-          if (overhangRight > halfS * 0.25) {
+          // Physical torque: gentle and proportional to overhang
+          c.rotVZ += tipFactor * GRAVITY * 0.0025 * dt;
+          // When overhang > 35%, detach — keep the rotation it had, let gravity do the rest
+          if (overhangRight > halfS * 0.35) {
             c.onGround = false;
-            c.vy = Math.max(c.vy, 30); // small initial drop
-            c.vx = Math.max(c.vx, 40); // gentle forward push
-            // Keep rotation that was building up - physical continuation
-            c.rotVZ = Math.max(c.rotVZ, 4 + tipFactor * 3);
-            // No random X/Y kicks - realistic physics only
+            // Preserve horizontal velocity, only add tiny downward initial velocity
+            c.vy = Math.max(c.vy, 10);
+            // Keep existing rotVZ (it built up naturally from torque) — NO artificial random tumble
+            // No X/Y rotation kicks — only realistic Z tumble
+            c.rotVX *= 0.5;
+            c.rotVY *= 0.5;
           }
         } else if (overhangLeft > 0) {
           const tipFactor = Math.min(1, overhangLeft / halfS);
-          c.rotVZ -= tipFactor * 10 * dt * 60;
-          if (overhangLeft > halfS * 0.25) {
+          c.rotVZ -= tipFactor * GRAVITY * 0.0025 * dt;
+          if (overhangLeft > halfS * 0.35) {
             c.onGround = false;
-            c.vy = Math.max(c.vy, 30);
-            c.vx = Math.min(c.vx, -40);
-            c.rotVZ = Math.min(c.rotVZ, -(4 + tipFactor * 3));
+            c.vy = Math.max(c.vy, 10);
+            c.rotVX *= 0.5;
+            c.rotVY *= 0.5;
           }
         } else {
           // Cube FULLY on stair → SETTLE flat on nearest face
@@ -499,9 +501,8 @@ export default function StairCube() {
               // === FLAT LANDING === : cube stays down, minimal bounce
               const bounce = c.isBall ? 0.65 : BOUNCE_DAMP * 0.4;
               c.vy = -c.vy * bounce;
-              c.vx *= 0.98; // barely reduce vx — preserve slide
-              // Very small angular disturbance (real cube: no big tumble)
-              c.rotVZ *= 0.5; // damp rolling rotation
+              c.vx *= 0.995; // almost NO friction on flat landing — preserve slide
+              c.rotVZ *= 0.5;
               c.rotVX *= 0.5;
               c.rotVY *= 0.5;
               if (Math.abs(c.vy) < 60) {
@@ -1156,7 +1157,7 @@ function SvgCube3D({
 }: {
   size: number;
   renderSize: number;
-  cubeRef: React.MutableRefObject<{ rotX: number; rotY: number; rotZ: number; size: number; isBall: boolean }>;
+  cubeRef: React.MutableRefObject<any>;
   hasPower: boolean;
   powerColor: string;
 }) {
@@ -1181,11 +1182,21 @@ function SvgCube3D({
   const scale = dynamicSize / size;
   const isBall = cubeRef.current.isBall;
 
+  // Detect if cube is "at rest" (no rotation velocity, no significant rotation)
+  // Access physics ref via cubeRef.current
+  const physRef = cubeRef.current as any;
+  const isAtRest = !isBall && physRef.onGround === true
+    && Math.abs(physRef.vx || 0) < 15
+    && Math.abs(physRef.vy || 0) < 5
+    && Math.abs(physRef.rotVZ || 0) < 0.2
+    && Math.abs(physRef.rotVX || 0) < 0.2
+    && Math.abs(physRef.rotVY || 0) < 0.2
+    && Math.abs(rx) < 0.1 && Math.abs(ry) < 0.1;
+
   // FIXED viewing angle (isometric camera) — applied AFTER cube's own orientation.
-  // This means the cube's physics orientation (rotX/Y/Z) represents the actual
-  // cube rotation in the world, while the view angle is a constant camera tilt.
-  const VIEW_X = 0.5;
-  const VIEW_Y = -0.55;
+  // Gentler angles so cube looks more flat when at rest.
+  const VIEW_X = 0.3;
+  const VIEW_Y = -0.3;
 
   // Project all 8 vertices: first rotate by cube orientation, THEN by view angle
   const projected: [number, number, number][] = CUBE_VERTS.map((v) => {
@@ -1252,6 +1263,38 @@ function SvgCube3D({
 
   // Render via SVG. Box is centered in a renderSize area; math center = (0,0).
   // The math bottom (halfSize) should align with the View's center (which is now CUBE_SIZE_BASE/2 above the renderSize bottom)
+  // At-rest mode: render flat 2D cube so it looks perfectly face-down (not tilted)
+  if (isAtRest) {
+    const mainColor = hasPower && powerColor ? powerColor : "#EC4899";
+    const lightShade = lighten(mainColor);
+    const darkShade = darken(mainColor, 0.45);
+    const sizeScaled = halfSize * scale * 2;
+    const topY = halfSize * scale - sizeScaled;
+    const topStripH = Math.max(3, sizeScaled * 0.18);
+    return (
+      <Svg width={renderSize} height={renderSize} viewBox={`${-renderSize / 2} ${-renderSize / 2} ${renderSize} ${renderSize}`}>
+        <Defs>
+          <SvgLG id={`restCube-${Math.round(sizeScaled)}`} x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={mainColor} stopOpacity="1" />
+            <Stop offset="1" stopColor={darkShade} stopOpacity="1" />
+          </SvgLG>
+        </Defs>
+        <Polygon
+          points={`${-sizeScaled/2},${topY} ${sizeScaled/2},${topY} ${sizeScaled/2},${topY + sizeScaled} ${-sizeScaled/2},${topY + sizeScaled}`}
+          fill={`url(#restCube-${Math.round(sizeScaled)})`}
+          stroke={darken(mainColor, 0.7)}
+          strokeWidth={1.5}
+          strokeLinejoin="round"
+        />
+        <Polygon
+          points={`${-sizeScaled/2 + 2},${topY + 2} ${sizeScaled/2 - 2},${topY + 2} ${sizeScaled/2 - 2},${topY + topStripH} ${-sizeScaled/2 + 2},${topY + topStripH}`}
+          fill={lightShade}
+          fillOpacity={0.7}
+        />
+      </Svg>
+    );
+  }
+
   if (isBall) {
     // === BALL MODE: render as sphere ===
     const ballR = halfSize * scale * 1.05;
