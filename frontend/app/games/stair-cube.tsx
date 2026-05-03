@@ -10,6 +10,10 @@ import {
   Easing,
   Platform,
   StatusBar,
+  TextInput,
+  KeyboardAvoidingView,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -97,6 +101,7 @@ function buildStairs(): Stair[] {
 }
 
 const HIGH_SCORE_KEY = "stair-cube:highscores";
+const PLAYER_NAME_KEY = "stair-cube:playerName";
 
 type HighScore = { name: string; score: number; ts: number };
 
@@ -202,7 +207,7 @@ export default function StairCube() {
     setPhase("aim");
   }, [aim, cube, power, cam, camTX, camTY, cubeTX, cubeTY, hud.highScores]);
 
-  // Load high scores
+  // Load high scores & player name
   useEffect(() => {
     AsyncStorage.getItem(HIGH_SCORE_KEY).then((raw) => {
       if (raw) {
@@ -212,7 +217,17 @@ export default function StairCube() {
         } catch {}
       }
     });
+    AsyncStorage.getItem(PLAYER_NAME_KEY).then((name) => {
+      if (name && name.trim().length > 0) setPlayerName(name);
+    });
   }, []);
+
+  // Save name whenever it changes (if not default)
+  useEffect(() => {
+    if (playerName && playerName !== "لاعب") {
+      AsyncStorage.setItem(PLAYER_NAME_KEY, playerName).catch(() => {});
+    }
+  }, [playerName]);
 
   // ===== Game loop =====
   useEffect(() => {
@@ -831,30 +846,59 @@ export default function StairCube() {
 
       {/* Menu overlay */}
       {phase === "menu" && (
-        <View style={styles.menuOverlay}>
-          <Text style={styles.menuTitle}>🎲 مكعب الدرج</Text>
-          <Text style={styles.menuSub}>ارمِ المكعب ولامس أكبر عدد من الدرجات</Text>
-          <Pressable style={styles.startBtn} onPress={onTap}>
-            <Ionicons name="play" size={28} color="#fff" />
-            <Text style={styles.startTxt}>ابدأ اللعب</Text>
-          </Pressable>
-          {hud.highScores.length > 0 && (
-            <View style={styles.scoreBox}>
-              <Text style={styles.scoreBoxTitle}>🏆 أفضل النتائج</Text>
-              {hud.highScores.slice(0, 5).map((h, i) => (
-                <View key={i} style={styles.scoreRow}>
-                  <Text style={styles.scoreRank}>{i + 1}.</Text>
-                  <Text style={styles.scoreName}>{h.name}</Text>
-                  <Text style={styles.scoreVal}>{h.score}</Text>
-                </View>
-              ))}
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.menuOverlay}
+          >
+            <Text style={styles.menuTitle}>🎲 مكعب الدرج</Text>
+            <Text style={styles.menuSub}>ارمِ المكعب ولامس أكبر عدد من الدرجات</Text>
+
+            {/* Name input */}
+            <View style={styles.nameBox}>
+              <Text style={styles.nameLabel}>اسم اللاعب</Text>
+              <TextInput
+                style={styles.nameInput}
+                value={playerName}
+                onChangeText={(t) => setPlayerName(t.slice(0, 16))}
+                placeholder="أدخل اسمك"
+                placeholderTextColor="rgba(255,255,255,0.4)"
+                maxLength={16}
+                textAlign="center"
+                returnKeyType="done"
+                onSubmitEditing={Keyboard.dismiss}
+              />
             </View>
-          )}
-          <Pressable style={styles.backBtn} onPress={() => router.back()}>
-            <Ionicons name="home" size={18} color="#fff" />
-            <Text style={styles.backBtnTxt}>عودة للقائمة</Text>
-          </Pressable>
-        </View>
+
+            <Pressable
+              style={[styles.startBtn, !playerName.trim() && { opacity: 0.45 }]}
+              disabled={!playerName.trim()}
+              onPress={() => {
+                Keyboard.dismiss();
+                onTap();
+              }}
+            >
+              <Ionicons name="play" size={28} color="#fff" />
+              <Text style={styles.startTxt}>ابدأ اللعب</Text>
+            </Pressable>
+            {hud.highScores.length > 0 && (
+              <View style={styles.scoreBox}>
+                <Text style={styles.scoreBoxTitle}>🏆 أفضل النتائج</Text>
+                {hud.highScores.slice(0, 5).map((h, i) => (
+                  <View key={i} style={styles.scoreRow}>
+                    <Text style={styles.scoreRank}>{i + 1}.</Text>
+                    <Text style={styles.scoreName}>{h.name}</Text>
+                    <Text style={styles.scoreVal}>{h.score}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+            <Pressable style={styles.backBtn} onPress={() => router.back()}>
+              <Ionicons name="home" size={18} color="#fff" />
+              <Text style={styles.backBtnTxt}>عودة للقائمة</Text>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </TouchableWithoutFeedback>
       )}
 
       {/* Game Over overlay */}
@@ -891,7 +935,7 @@ export default function StairCube() {
   );
 }
 
-// ===== Stair component (improved 3D look) =====
+// ===== Stair component (clean 2D design) =====
 function Stair3D({ stair }: { stair: Stair }) {
   if (stair.broken) {
     return (
@@ -920,24 +964,9 @@ function Stair3D({ stair }: { stair: Stair }) {
   } else {
     topColor = "#A5B4FC"; frontColor = "#6366F1"; sideColor = "#3730A3"; edgeColor = "#1E1B4B"; highlightColor = "#E0E7FF";
   }
-  const depth = STAIR_W * 0.16;
   return (
     <>
-      {/* DEPTH face (right side, 3D side) — drawn FIRST so other faces overlap it */}
-      <View
-        style={{
-          position: "absolute",
-          left: stair.x + STAIR_W,
-          top: stair.y - depth,
-          width: depth,
-          height: STAIR_FRONT_H + depth,
-          backgroundColor: sideColor,
-          transform: [{ skewY: "-45deg" }, { translateY: depth / 2 }],
-          borderTopWidth: 1,
-          borderTopColor: edgeColor,
-        }}
-      />
-      {/* FRONT face (vertical "rise" of the step) — main visible face */}
+      {/* FRONT face (vertical rise) */}
       <LinearGradient
         colors={[frontColor, sideColor]}
         start={{ x: 0, y: 0 }}
@@ -945,45 +974,37 @@ function Stair3D({ stair }: { stair: Stair }) {
         style={{
           position: "absolute",
           left: stair.x,
-          top: stair.y + 2,
+          top: stair.y,
           width: STAIR_W,
           height: STAIR_FRONT_H,
-          borderLeftWidth: 1.5,
-          borderLeftColor: edgeColor,
-          borderRightWidth: 1.5,
-          borderRightColor: edgeColor,
-          borderBottomWidth: 1,
-          borderBottomColor: edgeColor,
-        }}
-      />
-      {/* TOP face (horizontal step surface) — flat on top with highlight strip */}
-      <LinearGradient
-        colors={[highlightColor, topColor, sideColor]}
-        locations={[0, 0.25, 1]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={{
-          position: "absolute",
-          left: stair.x - 2,
-          top: stair.y - 5,
-          width: STAIR_W + 4,
-          height: 10,
-          borderRadius: 2,
-          borderWidth: 1.5,
+          borderWidth: 2,
           borderColor: edgeColor,
+          borderRadius: 3,
         }}
       />
-      {/* Top highlight line (where light hits the front edge of the step) */}
+      {/* TOP edge highlight strip (creates flat 2D step look) */}
       <View
         style={{
           position: "absolute",
-          left: stair.x + 4,
-          top: stair.y + 3,
-          width: STAIR_W - 8,
-          height: 2,
+          left: stair.x,
+          top: stair.y,
+          width: STAIR_W,
+          height: 4,
+          backgroundColor: topColor,
+          borderTopLeftRadius: 3,
+          borderTopRightRadius: 3,
+        }}
+      />
+      {/* Subtle inner highlight line */}
+      <View
+        style={{
+          position: "absolute",
+          left: stair.x + 3,
+          top: stair.y + 4,
+          width: STAIR_W - 6,
+          height: 1,
           backgroundColor: highlightColor,
-          opacity: 0.5,
-          borderRadius: 1,
+          opacity: 0.6,
         }}
       />
       {/* Power ? marker */}
@@ -1476,6 +1497,32 @@ const styles = StyleSheet.create({
     marginTop: 18,
   },
   backBtnTxt: { color: "#fff", fontWeight: "900", fontSize: 14 },
+  nameBox: {
+    marginTop: 16,
+    marginBottom: 8,
+    alignItems: "center",
+    width: "100%",
+    maxWidth: 280,
+  },
+  nameLabel: {
+    color: "rgba(255,255,255,0.75)",
+    fontWeight: "700",
+    fontSize: 13,
+    marginBottom: 6,
+    letterSpacing: 0.3,
+  },
+  nameInput: {
+    width: "100%",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderWidth: 2,
+    borderColor: "rgba(251,191,36,0.5)",
+    borderRadius: 12,
+    color: "#fff",
+    fontSize: 17,
+    fontWeight: "800",
+  },
   scoreBox: {
     width: "85%", maxWidth: 360,
     backgroundColor: "rgba(255,255,255,0.06)",
