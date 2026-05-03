@@ -26,8 +26,8 @@ const { width: WIN_W, height: WIN_H } = Dimensions.get("window");
 
 // ========== Constants ==========
 const TILE = 28; // visual unit
-const CUBE_SIZE_BASE = TILE * 1.35; // larger cube for clear 3D visibility
-const CUBE_RENDER_SIZE = CUBE_SIZE_BASE * 3; // bigger render area to accommodate bigCube power-up scaling
+const CUBE_SIZE_BASE = TILE * 0.95; // small, clear cube
+const CUBE_RENDER_SIZE = CUBE_SIZE_BASE * 2.6; // room for rotation + bigCube powerup
 const STAIR_W = TILE * 5.0; // VERY wide step (long horizontally)
 const STAIR_H = TILE * 1.5; // short rise (short vertically)
 const STAIR_FRONT_H = STAIR_H * 1.0;
@@ -473,8 +473,8 @@ export default function StairCube() {
 
     // --- Speed-based zoom: faster = pull camera back (smaller scale) ---
     const speedNow = Math.hypot(c.vx, c.vy);
-    // Map speed [0..2200] → scale [1.0..0.5]
-    let targetScale = 1 - Math.min(1, Math.max(0, speedNow - 400) / 1800) * 0.5;
+    // Map speed [0..2500] → scale [1.0..0.75] — gentle zoom so cube stays clearly visible
+    let targetScale = 1 - Math.min(1, Math.max(0, speedNow - 500) / 2000) * 0.25;
     // Smoothly approach target scale
     const newScale = currentScaleRef.current + (targetScale - currentScaleRef.current) * Math.min(1, dt * 3);
     currentScaleRef.current = newScale;
@@ -702,12 +702,11 @@ export default function StairCube() {
       const dirY = -Math.cos(angle);
       cube.vx = dirX * speed;
       cube.vy = dirY * speed;
-      // TRUE 3D tumble spin — cube rotates on all 3 axes while airborne
-      // rotZ dominant (matches flight direction for realistic rolling),
-      // rotX/rotY add natural tumble variation
-      cube.rotVX = (Math.random() - 0.3) * 4 + power.value * 2;
-      cube.rotVY = (Math.random() - 0.5) * 3;
-      cube.rotVZ = (cube.vx / cube.size) * 1.0 + Math.sign(cube.vx || 1) * 1.2;
+      // CLEAN rolling spin — only Z axis (matches side-view rolling direction).
+      // No random X/Y tumble so the cube stays oriented naturally.
+      cube.rotVX = 0;
+      cube.rotVY = 0;
+      cube.rotVZ = (cube.vx / cube.size) * 1.2;
       try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
       setPhase("flight");
       return;
@@ -787,9 +786,21 @@ export default function StairCube() {
       </View>
       )}
 
-      {/* World container (translated by camera, scaled by speed) */}
+      {/* World container (translated by camera, scaled by speed FROM SCREEN CENTER) */}
       <Animated.View
-        style={[StyleSheet.absoluteFill, { transform: [{ scale: worldScale }] }]}
+        style={[
+          StyleSheet.absoluteFill,
+          {
+            // Scale pivots at screen center so the cube stays on screen when zoomed
+            transform: [
+              { translateX: WIN_W / 2 },
+              { translateY: WIN_H / 2 },
+              { scale: worldScale },
+              { translateX: -WIN_W / 2 },
+              { translateY: -WIN_H / 2 },
+            ],
+          },
+        ]}
         pointerEvents="none"
       >
       <Animated.View
@@ -1324,22 +1335,25 @@ function SimpleCube({
   return (
     <View
       style={{
-        width: dynamicSize,
-        height: dynamicSize,
+        // Container MUST be the full render size so the SVG doesn't get clipped
+        // when the cube rotates and corners stick out beyond dynamicSize.
+        width: renderSize,
+        height: renderSize,
         alignItems: "center",
         justifyContent: "center",
       }}
     >
-      {/* Ground shadow */}
+      {/* Ground shadow - small ellipse directly below cube's math bottom */}
       <View
         style={{
           position: "absolute",
-          top: dynamicSize + 4,
-          left: dynamicSize * 0.1,
+          // Cube's math bottom is at renderSize/2 + dynamicSize/2 from top
+          top: renderSize / 2 + dynamicSize / 2 + 2,
+          left: renderSize / 2 - dynamicSize * 0.4,
           width: dynamicSize * 0.8,
-          height: 5,
+          height: 4,
           borderRadius: 999,
-          backgroundColor: "rgba(0,0,0,0.4)",
+          backgroundColor: "rgba(0,0,0,0.35)",
         }}
       />
       <SvgCube3D
