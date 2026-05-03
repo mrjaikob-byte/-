@@ -702,11 +702,12 @@ export default function StairCube() {
       const dirY = -Math.cos(angle);
       cube.vx = dirX * speed;
       cube.vy = dirY * speed;
-      // Realistic initial spin: cube rotates in direction of horizontal motion
-      // (like a rolled die that tumbles through the air matching its throw direction)
-      cube.rotVX = 0;
-      cube.rotVY = 0;
-      cube.rotVZ = (cube.vx / cube.size) * 1.1 + Math.sign(cube.vx || 1) * 1.5;
+      // TRUE 3D tumble spin — cube rotates on all 3 axes while airborne
+      // rotZ dominant (matches flight direction for realistic rolling),
+      // rotX/rotY add natural tumble variation
+      cube.rotVX = (Math.random() - 0.3) * 4 + power.value * 2;
+      cube.rotVY = (Math.random() - 0.5) * 3;
+      cube.rotVZ = (cube.vx / cube.size) * 1.0 + Math.sign(cube.vx || 1) * 1.2;
       try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
       setPhase("flight");
       return;
@@ -1314,125 +1315,155 @@ function SimpleCube({
     );
   }
 
-  // ===== CUBE MODE =====
-  // Isometric depth (how much the top/right faces protrude)
-  const depth = Math.max(6, dynamicSize * 0.28);
-  const totalW = dynamicSize + depth;
-  const totalH = dynamicSize + depth;
+  // ============================================================================
+  // ===== TRUE 3D CUBE MODE =====
+  // Real 3D cube with 6 faces positioned in 3D space via perspective transforms.
+  // Each face is a View translated to its position in 3D, then rotated around
+  // the cube's 3 axes (rotX, rotY, rotZ). Dice pips on every face show rotation.
+  // ============================================================================
+  const rotX = cubeRef.current.rotX || 0;
+  const rotY = cubeRef.current.rotY || 0;
+  const halfSize = dynamicSize / 2;
 
-  // Pip radius for dice face (5 pips pattern)
-  const pipD = Math.max(3, dynamicSize * 0.14);
-  // Padding inside front face for pips
-  const pad = dynamicSize * 0.18;
+  // Face background colors (slight variation per face for 3D look)
+  const colorFront  = faceColor;
+  const colorBack   = darken(baseHex, 0.15);
+  const colorRight  = darken(baseHex, 0.08);
+  const colorLeft   = darken(baseHex, 0.12);
+  const colorTop    = lighten(baseHex);
+  const colorBottom = darken(baseHex, 0.45);
+
+  // Pip sizing for dice pattern on each face
+  const pipD = Math.max(3, dynamicSize * 0.13);
+  const pipPad = dynamicSize * 0.17;
+
+  // Helper: pip positions for a given face value (1-6)
+  const pipPositions = (face: number): Array<{ cx: number; cy: number }> => {
+    const s = dynamicSize;
+    const p = pipPad + pipD / 2;
+    const cen = s / 2;
+    const far = s - pipPad - pipD / 2;
+    switch (face) {
+      case 1: return [{ cx: cen, cy: cen }];
+      case 2: return [{ cx: p, cy: p }, { cx: far, cy: far }];
+      case 3: return [{ cx: p, cy: p }, { cx: cen, cy: cen }, { cx: far, cy: far }];
+      case 4: return [
+        { cx: p, cy: p }, { cx: far, cy: p },
+        { cx: p, cy: far }, { cx: far, cy: far },
+      ];
+      case 5: return [
+        { cx: p, cy: p }, { cx: far, cy: p },
+        { cx: cen, cy: cen },
+        { cx: p, cy: far }, { cx: far, cy: far },
+      ];
+      case 6: return [
+        { cx: p, cy: p }, { cx: far, cy: p },
+        { cx: p, cy: cen }, { cx: far, cy: cen },
+        { cx: p, cy: far }, { cx: far, cy: far },
+      ];
+      default: return [];
+    }
+  };
+
+  // Render a single face with dice pips
+  const Face = ({
+    bg,
+    faceValue,
+    transform,
+  }: {
+    bg: string;
+    faceValue: number;
+    transform: any[];
+  }) => (
+    <View
+      style={{
+        position: "absolute",
+        left: 0,
+        top: 0,
+        width: dynamicSize,
+        height: dynamicSize,
+        backgroundColor: bg,
+        borderWidth: 1.5,
+        borderColor: edgeColor,
+        borderRadius: Math.max(2, dynamicSize * 0.06),
+        overflow: "hidden",
+        transform,
+      }}
+    >
+      {/* Subtle shading gradient for depth on each face */}
+      <LinearGradient
+        colors={["rgba(255,255,255,0.25)", "rgba(0,0,0,0.15)"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      {/* Dice pips */}
+      {pipPositions(faceValue).map((p, i) => (
+        <View
+          key={i}
+          style={{
+            position: "absolute",
+            left: p.cx - pipD / 2,
+            top: p.cy - pipD / 2,
+            width: pipD,
+            height: pipD,
+            borderRadius: pipD / 2,
+            backgroundColor: pipColor,
+          }}
+        />
+      ))}
+    </View>
+  );
+
+  // The outer 3D scene container needs perspective + the cube rotation.
+  // Each face uses: first rotate to its orientation, then translate "outward" by halfSize.
+  const cubeRotTransform: any[] = [
+    { perspective: 800 },
+    { rotateX: `${(rotX * 180) / Math.PI}deg` },
+    { rotateY: `${(rotY * 180) / Math.PI}deg` },
+    { rotateZ: `${(rotZ * 180) / Math.PI}deg` },
+  ];
 
   return (
     <View
       style={{
-        width: totalW,
-        height: totalH,
+        width: dynamicSize,
+        height: dynamicSize,
       }}
     >
-      {/* ===== GROUND SHADOW (doesn't rotate) - absolute below cube ===== */}
+      {/* Ground shadow */}
       <View
         style={{
           position: "absolute",
-          top: totalH + 2,
-          left: totalW * 0.1,
-          width: totalW * 0.8,
+          top: dynamicSize + 4,
+          left: dynamicSize * 0.1,
+          width: dynamicSize * 0.8,
           height: 5,
           borderRadius: 999,
-          backgroundColor: "rgba(0,0,0,0.35)",
+          backgroundColor: "rgba(0,0,0,0.4)",
         }}
       />
 
-      {/* ===== ROTATING CUBE BODY ===== */}
+      {/* 3D scene (with perspective + overall rotation) */}
       <View
         style={{
-          width: totalW,
-          height: totalH,
-          transform: [{ rotate: `${(rotZ * 180) / Math.PI}deg` }],
+          width: dynamicSize,
+          height: dynamicSize,
+          transform: cubeRotTransform,
         }}
       >
-        {/* TOP face (parallelogram at top) */}
-        <View
-          style={{
-            position: "absolute",
-            left: depth,
-            top: 0,
-            width: dynamicSize,
-            height: depth,
-            backgroundColor: topFaceColor,
-            transform: [{ skewX: "-45deg" }],
-            borderTopWidth: 1.5,
-            borderLeftWidth: 1,
-            borderRightWidth: 1,
-            borderColor: edgeColor,
-          }}
-        />
-        {/* TOP face highlight (adds light gleam) */}
-        <View
-          style={{
-            position: "absolute",
-            left: depth + 2,
-            top: 1,
-            width: dynamicSize - 4,
-            height: 2,
-            backgroundColor: "rgba(255,255,255,0.55)",
-            transform: [{ skewX: "-45deg" }],
-          }}
-        />
-
-        {/* RIGHT face (parallelogram on right) */}
-        <View
-          style={{
-            position: "absolute",
-            left: dynamicSize,
-            top: depth,
-            width: depth,
-            height: dynamicSize,
-            backgroundColor: sideFaceColor,
-            transform: [{ skewY: "-45deg" }],
-            borderRightWidth: 1.5,
-            borderTopWidth: 1,
-            borderBottomWidth: 1,
-            borderColor: edgeColor,
-          }}
-        />
-
-        {/* FRONT face (main visible square with dice pattern) */}
-        <View
-          style={{
-            position: "absolute",
-            left: 0,
-            top: depth,
-            width: dynamicSize,
-            height: dynamicSize,
-            backgroundColor: faceColor,
-            borderWidth: 2,
-            borderColor: edgeColor,
-            borderRadius: Math.max(2, dynamicSize * 0.06),
-            overflow: "hidden",
-          }}
-        >
-          {/* Gradient highlight (top-left brighter) for 3D shading */}
-          <LinearGradient
-            colors={["rgba(255,255,255,0.35)", "rgba(255,255,255,0.05)", "rgba(0,0,0,0.15)"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-          {/* Dice 5-pip pattern — makes rotation visible */}
-          {/* Top-left pip */}
-          <View style={{ position: "absolute", top: pad, left: pad, width: pipD, height: pipD, borderRadius: pipD / 2, backgroundColor: pipColor }} />
-          {/* Top-right pip */}
-          <View style={{ position: "absolute", top: pad, right: pad, width: pipD, height: pipD, borderRadius: pipD / 2, backgroundColor: pipColor }} />
-          {/* Center pip */}
-          <View style={{ position: "absolute", top: dynamicSize / 2 - pipD / 2 - 2, left: dynamicSize / 2 - pipD / 2 - 2, width: pipD, height: pipD, borderRadius: pipD / 2, backgroundColor: pipColor }} />
-          {/* Bottom-left pip */}
-          <View style={{ position: "absolute", bottom: pad, left: pad, width: pipD, height: pipD, borderRadius: pipD / 2, backgroundColor: pipColor }} />
-          {/* Bottom-right pip */}
-          <View style={{ position: "absolute", bottom: pad, right: pad, width: pipD, height: pipD, borderRadius: pipD / 2, backgroundColor: pipColor }} />
-        </View>
+        {/* Front face (value 1) - forward */}
+        <Face bg={colorFront} faceValue={1} transform={[{ translateZ: halfSize }]} />
+        {/* Back face (value 6) - opposite 1 */}
+        <Face bg={colorBack} faceValue={6} transform={[{ rotateY: "180deg" }, { translateZ: halfSize }]} />
+        {/* Right face (value 3) */}
+        <Face bg={colorRight} faceValue={3} transform={[{ rotateY: "90deg" }, { translateZ: halfSize }]} />
+        {/* Left face (value 4) - opposite 3 */}
+        <Face bg={colorLeft} faceValue={4} transform={[{ rotateY: "-90deg" }, { translateZ: halfSize }]} />
+        {/* Top face (value 2) */}
+        <Face bg={colorTop} faceValue={2} transform={[{ rotateX: "90deg" }, { translateZ: halfSize }]} />
+        {/* Bottom face (value 5) - opposite 2 */}
+        <Face bg={colorBottom} faceValue={5} transform={[{ rotateX: "-90deg" }, { translateZ: halfSize }]} />
       </View>
     </View>
   );
