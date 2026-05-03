@@ -378,16 +378,32 @@ export default function StairCube() {
           if (c.isBall) {
             // Ball keeps rolling — apply low friction only, no rotation snap
             c.vx *= Math.exp(-FRICTION_GROUND * 0.5 * dt);
+            // Ball rotation couples to velocity (rolls naturally)
+            c.rotVZ = c.vx / (c.size * 0.5);
           } else {
-            // CUBE: snap all rotations to flat (face-down) orientation
-            const QUARTER = Math.PI / 2;
-            // Snap rotZ to nearest 90° (which face is down)
-            const targetZ = Math.round(c.rotZ / QUARTER) * QUARTER;
-            c.rotZ += (targetZ - c.rotZ) * Math.min(1, dt * 7);
-            // Snap rotX and rotY to 0 (flat, not tilted) — ESSENTIAL so cube sits on face
+            // ===== REALISTIC CUBE ROLLING =====
+            // If moving fast enough → ROLL (rotation couples to velocity)
+            // If moving slow → SLIDE (no rotation, snap to flat)
+            const speedAbs = Math.abs(c.vx);
+            const ROLL_THRESHOLD = 35; // below this → slide instead of roll
+
+            if (speedAbs > ROLL_THRESHOLD) {
+              // ROLLING: pure-rolling condition ω = v / r where r = size/2
+              // Target rotation velocity to match linear velocity
+              const targetRotVZ = c.vx / (c.size * 0.5);
+              // Ease toward target (so rolling starts/stops naturally)
+              c.rotVZ += (targetRotVZ - c.rotVZ) * Math.min(1, dt * 8);
+              // No rotation snap while rolling fast
+            } else {
+              // SLIDING / STOPPING: snap to nearest flat orientation
+              const QUARTER = Math.PI / 2;
+              const targetZ = Math.round(c.rotZ / QUARTER) * QUARTER;
+              c.rotZ += (targetZ - c.rotZ) * Math.min(1, dt * 10);
+              c.rotVZ *= Math.exp(-dt * 8); // quickly damp rotation
+            }
+            // Damp any residual X/Y tilt (should be zero, but ensure)
             c.rotX += (0 - c.rotX) * Math.min(1, dt * 7);
             c.rotY += (0 - c.rotY) * Math.min(1, dt * 7);
-            c.rotVZ *= Math.exp(-dt * 5);
             c.rotVX *= Math.exp(-dt * 5);
             c.rotVY *= Math.exp(-dt * 5);
             // LOTS of sliding — very low ground friction
@@ -596,8 +612,8 @@ export default function StairCube() {
             c.vx = -c.vx * BOUNCE_WALL;
             c.vy *= 0.92;
             const wallStrength = Math.min(1.5, Math.abs(incomingVx) / 500);
-            c.rotVY += Math.sign(incomingVx) * wallStrength * 3;
-            c.rotVZ -= Math.sign(incomingVx) * wallStrength * 2;
+            // Wall bounce kicks rotZ backward (cube spins opposite to its incoming direction)
+            c.rotVZ -= Math.sign(incomingVx) * wallStrength * 3.5;
             // Wall hit counts as touching the stair → mark it touched (turns green + point)
             if (!s.touched) {
               s.touched = true;
@@ -613,8 +629,7 @@ export default function StairCube() {
             c.vx = -c.vx * BOUNCE_WALL;
             c.vy *= 0.92;
             const wallStrength = Math.min(1.5, Math.abs(incomingVx) / 500);
-            c.rotVY -= wallStrength * 3;
-            c.rotVZ += wallStrength * 2;
+            c.rotVZ += wallStrength * 3.5;
             if (!s.touched) {
               s.touched = true;
               try { Haptics.selectionAsync(); } catch {}
@@ -687,10 +702,11 @@ export default function StairCube() {
       const dirY = -Math.cos(angle);
       cube.vx = dirX * speed;
       cube.vy = dirY * speed;
-      // Initial 3D tumble — true random axis rotation for realistic flight spin
-      cube.rotVX = (Math.random() - 0.3) * 8 + power.value * 4;
-      cube.rotVY = (Math.random() - 0.5) * 6;
-      cube.rotVZ = (Math.random() - 0.5) * 5 + (cube.vx / cube.size) * 0.3;
+      // Realistic initial spin: cube rotates in direction of horizontal motion
+      // (like a rolled die that tumbles through the air matching its throw direction)
+      cube.rotVX = 0;
+      cube.rotVY = 0;
+      cube.rotVZ = (cube.vx / cube.size) * 1.1 + Math.sign(cube.vx || 1) * 1.5;
       try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
       setPhase("flight");
       return;
@@ -1185,15 +1201,29 @@ function Stair3D({ stair }: { stair: Stair }) {
 }
 
 // ============================================================================
-// SIMPLE ROBUST 3D CUBE (View-based isometric) — rewritten for reliability
+// REALISTIC 3D CUBE — Brand new implementation.
 // ============================================================================
-// Uses layered Views to create a clean isometric cube look:
-//   • Front face (main, flat square with pip)
-//   • Top face (skewed parallelogram)
-//   • Right face (skewed parallelogram)
-// The whole cube rotates as a unit via transform:rotate, keeping consistent
-// appearance at all times. No SVG projection, no perspective math, no clipping.
+// Perfect isometric cube that ALWAYS looks 3D regardless of rotation.
+// - 3 always-visible faces (top, front, right) create the 3D illusion
+// - Dice-pip pattern on front face makes rolling motion obvious
+// - Ground shadow for visual grounding
+// - Zero clipping, zero visual glitches
 // ============================================================================
+
+// Helper: render a single dice pip (solid circle)
+function Pip({ d, color }: { d: number; color: string }) {
+  return (
+    <View
+      style={{
+        width: d,
+        height: d,
+        borderRadius: d / 2,
+        backgroundColor: color,
+      }}
+    />
+  );
+}
+
 function SimpleCube({
   size,
   renderSize,
@@ -1207,7 +1237,7 @@ function SimpleCube({
   hasPower: boolean;
   powerColor: string;
 }) {
-  // Re-render at 60fps by reading rotation from ref
+  // Re-render at 60fps from the ref (no React state changes during physics)
   const [, tick] = React.useReducer((v: number) => v + 1, 0);
   React.useEffect(() => {
     let raf = 0;
@@ -1220,119 +1250,189 @@ function SimpleCube({
   const dynamicSize = cubeRef.current.size || size;
   const isBall = cubeRef.current.isBall;
 
-  // Colors
-  const mainColor = hasPower && powerColor ? powerColor : "#EC4899";
-  const topColor = hasPower ? lighten(powerColor) : "#FBCFE8";
-  const rightColor = hasPower ? darken(powerColor, 0.25) : "#DB2777";
-  const edgeColor = hasPower ? darken(powerColor, 0.6) : "#500724";
+  // Color palette — rich crimson (like a classic die) or power color
+  const baseHex = hasPower && powerColor ? powerColor : "#DC2626";
+  const faceColor = baseHex;                          // main front face
+  const topFaceColor = lighten(baseHex);              // lighter top
+  const sideFaceColor = darken(baseHex, 0.35);        // darker right
+  const edgeColor = darken(baseHex, 0.7);             // almost black edges
+  const pipColor = "#FFFFFF";                         // white pips
 
-  // Ball mode
+  // ===== BALL MODE =====
   if (isBall) {
     return (
-      <View
-        style={{
-          width: dynamicSize,
-          height: dynamicSize,
-          borderRadius: dynamicSize / 2,
-          backgroundColor: mainColor,
-          borderWidth: 2,
-          borderColor: edgeColor,
-          boxShadow: `inset -3px -3px 6px ${edgeColor}, inset 3px 3px 6px rgba(255,255,255,0.4)`,
-        }}
-      />
+      <View style={{ width: dynamicSize, height: dynamicSize, alignItems: "center", justifyContent: "center" }}>
+        {/* Ground shadow */}
+        <View
+          style={{
+            position: "absolute",
+            bottom: -dynamicSize * 0.05,
+            width: dynamicSize * 0.85,
+            height: dynamicSize * 0.18,
+            borderRadius: dynamicSize,
+            backgroundColor: "rgba(0,0,0,0.35)",
+          }}
+        />
+        <View
+          style={{
+            width: dynamicSize,
+            height: dynamicSize,
+            borderRadius: dynamicSize / 2,
+            backgroundColor: faceColor,
+            borderWidth: 2,
+            borderColor: edgeColor,
+            overflow: "hidden",
+            transform: [{ rotate: `${(rotZ * 180) / Math.PI}deg` }],
+          }}
+        >
+          {/* Highlight for 3D sphere look */}
+          <View
+            style={{
+              position: "absolute",
+              top: dynamicSize * 0.12,
+              left: dynamicSize * 0.15,
+              width: dynamicSize * 0.4,
+              height: dynamicSize * 0.3,
+              borderRadius: dynamicSize,
+              backgroundColor: "rgba(255,255,255,0.45)",
+            }}
+          />
+          {/* Stripe for rotation visibility */}
+          <View
+            style={{
+              position: "absolute",
+              top: dynamicSize / 2 - 2,
+              left: 0,
+              right: 0,
+              height: 4,
+              backgroundColor: edgeColor,
+              opacity: 0.6,
+            }}
+          />
+        </View>
+      </View>
     );
   }
 
-  // Isometric depth
-  const depth = dynamicSize * 0.2;
+  // ===== CUBE MODE =====
+  // Isometric depth (how much the top/right faces protrude)
+  const depth = Math.max(6, dynamicSize * 0.28);
+  const totalW = dynamicSize + depth;
+  const totalH = dynamicSize + depth;
+
+  // Pip radius for dice face (5 pips pattern)
+  const pipD = Math.max(3, dynamicSize * 0.14);
+  // Padding inside front face for pips
+  const pad = dynamicSize * 0.18;
 
   return (
     <View
       style={{
-        width: dynamicSize + depth,
-        height: dynamicSize + depth,
-        transform: [
-          { rotate: `${(rotZ * 180) / Math.PI}deg` },
-        ],
+        width: totalW,
+        height: totalH,
       }}
     >
-      {/* Top face (horizontal parallelogram) */}
+      {/* ===== GROUND SHADOW (doesn't rotate) - absolute below cube ===== */}
       <View
         style={{
           position: "absolute",
-          left: depth / 2,
-          top: 0,
-          width: dynamicSize,
-          height: depth,
-          backgroundColor: topColor,
-          transform: [{ skewX: "-45deg" }],
-          borderTopWidth: 1.5,
-          borderTopColor: edgeColor,
-          borderLeftWidth: 1,
-          borderLeftColor: edgeColor,
-          borderRightWidth: 1,
-          borderRightColor: edgeColor,
+          top: totalH + 2,
+          left: totalW * 0.1,
+          width: totalW * 0.8,
+          height: 5,
+          borderRadius: 999,
+          backgroundColor: "rgba(0,0,0,0.35)",
         }}
       />
-      {/* Right face (vertical parallelogram) */}
+
+      {/* ===== ROTATING CUBE BODY ===== */}
       <View
         style={{
-          position: "absolute",
-          left: dynamicSize,
-          top: depth,
-          width: depth,
-          height: dynamicSize,
-          backgroundColor: rightColor,
-          transform: [{ skewY: "-45deg" }],
-          borderRightWidth: 1.5,
-          borderRightColor: edgeColor,
-          borderTopWidth: 1,
-          borderTopColor: edgeColor,
-          borderBottomWidth: 1,
-          borderBottomColor: edgeColor,
-        }}
-      />
-      {/* Front face (the main square) */}
-      <View
-        style={{
-          position: "absolute",
-          left: 0,
-          top: depth,
-          width: dynamicSize,
-          height: dynamicSize,
-          backgroundColor: mainColor,
-          borderWidth: 2,
-          borderColor: edgeColor,
-          borderRadius: 3,
-          alignItems: "center",
-          justifyContent: "center",
-          overflow: "hidden",
+          width: totalW,
+          height: totalH,
+          transform: [{ rotate: `${(rotZ * 180) / Math.PI}deg` }],
         }}
       >
-        {/* Subtle highlight in top-left */}
+        {/* TOP face (parallelogram at top) */}
         <View
           style={{
             position: "absolute",
-            top: 3,
-            left: 3,
-            width: dynamicSize * 0.45,
-            height: dynamicSize * 0.45,
-            backgroundColor: "#FFFFFF",
-            opacity: 0.2,
-            borderRadius: 4,
-          }}
-        />
-        {/* Center pip (like a die) */}
-        <View
-          style={{
-            width: dynamicSize * 0.28,
-            height: dynamicSize * 0.28,
-            borderRadius: dynamicSize * 0.14,
-            backgroundColor: "#FFFFFF",
-            borderWidth: 2,
+            left: depth,
+            top: 0,
+            width: dynamicSize,
+            height: depth,
+            backgroundColor: topFaceColor,
+            transform: [{ skewX: "-45deg" }],
+            borderTopWidth: 1.5,
+            borderLeftWidth: 1,
+            borderRightWidth: 1,
             borderColor: edgeColor,
           }}
         />
+        {/* TOP face highlight (adds light gleam) */}
+        <View
+          style={{
+            position: "absolute",
+            left: depth + 2,
+            top: 1,
+            width: dynamicSize - 4,
+            height: 2,
+            backgroundColor: "rgba(255,255,255,0.55)",
+            transform: [{ skewX: "-45deg" }],
+          }}
+        />
+
+        {/* RIGHT face (parallelogram on right) */}
+        <View
+          style={{
+            position: "absolute",
+            left: dynamicSize,
+            top: depth,
+            width: depth,
+            height: dynamicSize,
+            backgroundColor: sideFaceColor,
+            transform: [{ skewY: "-45deg" }],
+            borderRightWidth: 1.5,
+            borderTopWidth: 1,
+            borderBottomWidth: 1,
+            borderColor: edgeColor,
+          }}
+        />
+
+        {/* FRONT face (main visible square with dice pattern) */}
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            top: depth,
+            width: dynamicSize,
+            height: dynamicSize,
+            backgroundColor: faceColor,
+            borderWidth: 2,
+            borderColor: edgeColor,
+            borderRadius: Math.max(2, dynamicSize * 0.06),
+            overflow: "hidden",
+          }}
+        >
+          {/* Gradient highlight (top-left brighter) for 3D shading */}
+          <LinearGradient
+            colors={["rgba(255,255,255,0.35)", "rgba(255,255,255,0.05)", "rgba(0,0,0,0.15)"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+          {/* Dice 5-pip pattern — makes rotation visible */}
+          {/* Top-left pip */}
+          <View style={{ position: "absolute", top: pad, left: pad, width: pipD, height: pipD, borderRadius: pipD / 2, backgroundColor: pipColor }} />
+          {/* Top-right pip */}
+          <View style={{ position: "absolute", top: pad, right: pad, width: pipD, height: pipD, borderRadius: pipD / 2, backgroundColor: pipColor }} />
+          {/* Center pip */}
+          <View style={{ position: "absolute", top: dynamicSize / 2 - pipD / 2 - 2, left: dynamicSize / 2 - pipD / 2 - 2, width: pipD, height: pipD, borderRadius: pipD / 2, backgroundColor: pipColor }} />
+          {/* Bottom-left pip */}
+          <View style={{ position: "absolute", bottom: pad, left: pad, width: pipD, height: pipD, borderRadius: pipD / 2, backgroundColor: pipColor }} />
+          {/* Bottom-right pip */}
+          <View style={{ position: "absolute", bottom: pad, right: pad, width: pipD, height: pipD, borderRadius: pipD / 2, backgroundColor: pipColor }} />
+        </View>
       </View>
     </View>
   );
