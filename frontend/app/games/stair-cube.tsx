@@ -35,10 +35,10 @@ const FINISH_LINE_INDEX = TOTAL_STAIRS - 1;
 // Physics
 const GRAVITY = 1400; // px/s²
 const BOUNCE_DAMP = 0.34; // realistic restitution
-const FRICTION_GROUND = 0.35; // very low ground friction → lots of sliding
+const FRICTION_GROUND = 0.15; // very very low — slides 2x more
 const AIM_SPEED = 1.6;
 const STOP_THRESHOLD_VEL = 6;
-const STOP_THRESHOLD_TIME = 0.9;
+const STOP_THRESHOLD_TIME = 1.2;
 
 // Power-ups
 type PowerType =
@@ -291,51 +291,51 @@ export default function StairCube() {
       }
 
       // === EDGE TUMBLE PHYSICS (real-cube behavior on stairs) ===
-      // When cube has settled on a stair, check if it's balanced or on an edge
+      // When cube is on a stair, check how much of it is supported
       if (c.onGround && c.onStair >= 0 && Math.abs(c.vy) < 5) {
         const s = stairsRef.current[c.onStair];
         const stairLeft = s.x;
         const stairRight = s.x + STAIR_W;
         const halfS = c.size / 2;
-        const tipMargin = halfS * 0.5; // how close to edge before it tips
 
-        // Cube center past right edge → tips over right (into next stair)
-        if (c.x > stairRight - tipMargin) {
-          // Apply rotational gravity around the right corner
-          const overhang = c.x - (stairRight - tipMargin);
-          const torque = overhang * 6; // proportional torque
-          c.rotVZ += torque * dt;
-          // Once tipped enough, push off
-          if (c.rotZ > 0.4 || c.x > stairRight) {
+        // How much of cube extends past stair edges (negative = fully supported)
+        const overhangRight = (c.x + halfS) - stairRight;
+        const overhangLeft = stairLeft - (c.x - halfS);
+
+        if (overhangRight > 0) {
+          // Right edge of cube is past right edge of stair → tip/fall off the right
+          // Apply progressive torque that grows with overhang
+          const tipFactor = Math.min(1, overhangRight / halfS);
+          c.rotVZ += tipFactor * 8 * dt * 60; // strong rotational push
+          // Once overhang > 40% of cube size, detach and fall
+          if (overhangRight > halfS * 0.4) {
             c.onGround = false;
-            c.vy = Math.max(c.vy, 80);
-            c.vx = Math.max(c.vx, 60);
+            c.vy = Math.max(c.vy, 60);
+            c.vx = Math.max(c.vx, 100);
+            c.rotVZ = Math.max(c.rotVZ, 5);
           }
-        }
-        // Cube center past left edge → tips over left
-        else if (c.x < stairLeft + tipMargin) {
-          const overhang = (stairLeft + tipMargin) - c.x;
-          const torque = overhang * 6;
-          c.rotVZ -= torque * dt;
-          if (c.rotZ < -0.4 || c.x < stairLeft) {
+        } else if (overhangLeft > 0) {
+          // Left edge past left edge of stair → tip/fall off the left
+          const tipFactor = Math.min(1, overhangLeft / halfS);
+          c.rotVZ -= tipFactor * 8 * dt * 60;
+          if (overhangLeft > halfS * 0.4) {
             c.onGround = false;
-            c.vy = Math.max(c.vy, 80);
-            c.vx = Math.min(c.vx, -60);
+            c.vy = Math.max(c.vy, 60);
+            c.vx = Math.min(c.vx, -100);
+            c.rotVZ = Math.min(c.rotVZ, -5);
           }
-        }
-        // Cube fully supported → SETTLE: snap rotation to nearest 90°
-        else {
-          const TWO_PI = Math.PI * 2;
+        } else {
+          // Cube FULLY on stair → SETTLE flat
           const QUARTER = Math.PI / 2;
           const targetZ = Math.round(c.rotZ / QUARTER) * QUARTER;
-          c.rotZ += (targetZ - c.rotZ) * Math.min(1, dt * 5);
-          c.rotVZ *= 0.7;
+          c.rotZ += (targetZ - c.rotZ) * Math.min(1, dt * 6);
+          c.rotVZ *= Math.exp(-dt * 4); // exponential damping
           // Smoothly return to default isometric tilt for X & Y
           c.rotX += (0.55 - c.rotX) * Math.min(1, dt * 3);
           c.rotY += (-0.65 - c.rotY) * Math.min(1, dt * 3);
-          c.rotVX *= 0.85;
-          c.rotVY *= 0.85;
-          // Apply sliding friction on horizontal velocity (very light)
+          c.rotVX *= Math.exp(-dt * 4);
+          c.rotVY *= Math.exp(-dt * 4);
+          // Light sliding friction (exponential for smooth decay)
           c.vx *= Math.exp(-FRICTION_GROUND * dt);
         }
       }
@@ -461,30 +461,58 @@ export default function StairCube() {
           // === LAND ON TOP ===
           c.y = stairTop - halfS;
           if (c.vy > 0) {
-            const bounce = c.isBall ? 0.65 : BOUNCE_DAMP;
+            // === DETECT LANDING ANGLE: flat face vs edge/corner ===
+            // Normalize rotZ to [0, π/2) — cube has 4-fold symmetry
+            const normRot = ((c.rotZ % (Math.PI / 2)) + (Math.PI / 2)) % (Math.PI / 2);
+            const distFromFlat = Math.min(normRot, Math.PI / 2 - normRot) / (Math.PI / 4);
+            // 0.0 = perfectly flat (face down), 1.0 = perfectly edge down
+
             const incomingVy = c.vy;
-            c.vy = -c.vy * bounce;
-            // Gentle tangential friction (allows lots of sliding)
-            c.vx *= 0.97;
-            // === REALISTIC ROTATION FROM IMPACT ===
-            // Strength depends on impact velocity (vy) and horizontal speed (vx)
             const impactStrength = Math.min(1.5, incomingVy / 600);
-            const horizontalSpeed = Math.abs(c.vx) / c.size;
-            // Primary rotation: tumble forward proportional to vx (rolling)
-            // The sign matches direction of travel (positive vx → forward tumble)
-            const targetRollSpeed = horizontalSpeed * Math.sign(c.vx) * 1.2;
-            // Smoothly steer current rotVZ toward this target (more controlled than random)
-            c.rotVZ = c.rotVZ * 0.3 + targetRollSpeed * 0.7;
-            // Small wobble around X and Y based on impact (less chaotic)
-            c.rotVX += (Math.random() - 0.5) * 1.5 * impactStrength;
-            c.rotVY += (Math.random() - 0.5) * 1.0 * impactStrength;
-            // Settle if low velocity
-            if (Math.abs(c.vy) < 50) {
-              c.vy = 0;
-              c.onGround = true;
+
+            if (distFromFlat < 0.2) {
+              // === FLAT LANDING === : cube stays down, minimal bounce
+              const bounce = c.isBall ? 0.65 : BOUNCE_DAMP * 0.4;
+              c.vy = -c.vy * bounce;
+              c.vx *= 0.98; // barely reduce vx — preserve slide
+              // Very small angular disturbance (real cube: no big tumble)
+              c.rotVZ *= 0.5; // damp rolling rotation
+              c.rotVX *= 0.5;
+              c.rotVY *= 0.5;
+              if (Math.abs(c.vy) < 60) {
+                c.vy = 0;
+                c.onGround = true;
+              }
+            } else {
+              // === EDGE / CORNER LANDING === : tumble!
+              const bounce = c.isBall ? 0.65 : BOUNCE_DAMP;
+              c.vy = -c.vy * bounce;
+              c.vx *= 0.95;
+              // Tumble rotation: direction depends on which way cube is leaning
+              // The cube tips TOWARDS the leaning direction (torque from weight)
+              const leanSign = Math.sin(c.rotZ * 2); // positive if leaning one way
+              const tumbleStrength = impactStrength * distFromFlat * 12;
+              c.rotVZ += leanSign * tumbleStrength;
+              // Horizontal velocity also gets a kick from the edge deflection
+              c.vx += leanSign * impactStrength * 80;
+              // Small X/Y wobble
+              c.rotVX += (Math.random() - 0.5) * 2 * distFromFlat;
+              c.rotVY += (Math.random() - 0.5) * 1.5 * distFromFlat;
+              // Settle logic same as before
+              if (Math.abs(c.vy) < 50) {
+                c.vy = 0;
+                c.onGround = true;
+              }
             }
+
+            // Haptic feedback proportional to impact and edge-ness
             if (impactStrength > 0.3) {
-              try { Haptics.impactAsync(impactStrength > 0.7 ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Medium); } catch {}
+              try {
+                const style = (impactStrength > 0.7 || distFromFlat > 0.5)
+                  ? Haptics.ImpactFeedbackStyle.Heavy
+                  : Haptics.ImpactFeedbackStyle.Medium;
+                Haptics.impactAsync(style);
+              } catch {}
             }
           }
           // Mark touched
