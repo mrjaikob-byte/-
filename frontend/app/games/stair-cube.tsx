@@ -38,11 +38,12 @@ const FINISH_LINE_INDEX = TOTAL_STAIRS - 1;
 
 // Physics
 const GRAVITY = 1400; // px/s²
-const BOUNCE_DAMP = 0.34; // realistic restitution
-const FRICTION_GROUND = 0.15; // very very low — slides 2x more
+const BOUNCE_DAMP = 0.34; // vertical restitution (top landings)
+const BOUNCE_WALL = 0.55; // horizontal wall restitution — strong but controlled
+const FRICTION_GROUND = 0.08; // very very low — MAXIMUM sliding
 const AIM_SPEED = 1.6;
 const STOP_THRESHOLD_VEL = 6;
-const STOP_THRESHOLD_TIME = 1.2;
+const STOP_THRESHOLD_TIME = 1.4;
 
 // Power-ups
 type PowerType =
@@ -175,8 +176,9 @@ export default function StairCube() {
     cube.y = s.y - CUBE_SIZE_BASE / 2;
     cube.vx = 0; cube.vy = 0;
     cube.size = CUBE_SIZE_BASE;
-    // Default isometric tilt so 3 faces are visible at rest (top + front + right)
-    cube.rotX = 0.55; cube.rotY = -0.65; cube.rotZ = 0;
+    // Cube orientation: all zero = cube is FLAT on ground, one face down
+    // (viewing angle is applied separately in SvgCube3D)
+    cube.rotX = 0; cube.rotY = 0; cube.rotZ = 0;
     cube.rotVX = 0; cube.rotVY = 0; cube.rotVZ = 0;
     cube.isBall = false;
     cube.onGround = true;
@@ -319,39 +321,47 @@ export default function StairCube() {
 
         if (overhangRight > 0) {
           // Right edge of cube is past right edge of stair → tip/fall off the right
-          // Apply progressive torque that grows with overhang
+          // Gravity creates torque around the right corner of the stair (pivot point).
           const tipFactor = Math.min(1, overhangRight / halfS);
-          c.rotVZ += tipFactor * 8 * dt * 60; // strong rotational push
-          // Once overhang > 40% of cube size, detach and fall
-          if (overhangRight > halfS * 0.4) {
+          c.rotVZ += tipFactor * 10 * dt * 60; // physical torque from gravity
+          // Once overhang > 25% of cube, detach cleanly and let gravity take over
+          if (overhangRight > halfS * 0.25) {
             c.onGround = false;
-            c.vy = Math.max(c.vy, 60);
-            c.vx = Math.max(c.vx, 100);
-            c.rotVZ = Math.max(c.rotVZ, 5);
+            c.vy = Math.max(c.vy, 30); // small initial drop
+            c.vx = Math.max(c.vx, 40); // gentle forward push
+            // Keep rotation that was building up - physical continuation
+            c.rotVZ = Math.max(c.rotVZ, 4 + tipFactor * 3);
+            // No random X/Y kicks - realistic physics only
           }
         } else if (overhangLeft > 0) {
-          // Left edge past left edge of stair → tip/fall off the left
           const tipFactor = Math.min(1, overhangLeft / halfS);
-          c.rotVZ -= tipFactor * 8 * dt * 60;
-          if (overhangLeft > halfS * 0.4) {
+          c.rotVZ -= tipFactor * 10 * dt * 60;
+          if (overhangLeft > halfS * 0.25) {
             c.onGround = false;
-            c.vy = Math.max(c.vy, 60);
-            c.vx = Math.min(c.vx, -100);
-            c.rotVZ = Math.min(c.rotVZ, -5);
+            c.vy = Math.max(c.vy, 30);
+            c.vx = Math.min(c.vx, -40);
+            c.rotVZ = Math.min(c.rotVZ, -(4 + tipFactor * 3));
           }
         } else {
-          // Cube FULLY on stair → SETTLE flat
-          const QUARTER = Math.PI / 2;
-          const targetZ = Math.round(c.rotZ / QUARTER) * QUARTER;
-          c.rotZ += (targetZ - c.rotZ) * Math.min(1, dt * 6);
-          c.rotVZ *= Math.exp(-dt * 4); // exponential damping
-          // Smoothly return to default isometric tilt for X & Y
-          c.rotX += (0.55 - c.rotX) * Math.min(1, dt * 3);
-          c.rotY += (-0.65 - c.rotY) * Math.min(1, dt * 3);
-          c.rotVX *= Math.exp(-dt * 4);
-          c.rotVY *= Math.exp(-dt * 4);
-          // Light sliding friction (exponential for smooth decay)
-          c.vx *= Math.exp(-FRICTION_GROUND * dt);
+          // Cube FULLY on stair → SETTLE flat on nearest face
+          if (c.isBall) {
+            // Ball keeps rolling — apply low friction only, no rotation snap
+            c.vx *= Math.exp(-FRICTION_GROUND * 0.5 * dt);
+          } else {
+            // CUBE: snap all rotations to flat (face-down) orientation
+            const QUARTER = Math.PI / 2;
+            // Snap rotZ to nearest 90° (which face is down)
+            const targetZ = Math.round(c.rotZ / QUARTER) * QUARTER;
+            c.rotZ += (targetZ - c.rotZ) * Math.min(1, dt * 7);
+            // Snap rotX and rotY to 0 (flat, not tilted) — ESSENTIAL so cube sits on face
+            c.rotX += (0 - c.rotX) * Math.min(1, dt * 7);
+            c.rotY += (0 - c.rotY) * Math.min(1, dt * 7);
+            c.rotVZ *= Math.exp(-dt * 5);
+            c.rotVX *= Math.exp(-dt * 5);
+            c.rotVY *= Math.exp(-dt * 5);
+            // LOTS of sliding — very low ground friction
+            c.vx *= Math.exp(-FRICTION_GROUND * dt);
+          }
         }
       }
 
@@ -545,23 +555,22 @@ export default function StairCube() {
             // Cube moving right, hit LEFT wall
             c.x = stairLeft - halfS;
             const incomingVx = c.vx;
-            c.vx = -c.vx * BOUNCE_DAMP;
-            c.vy *= 0.95;
-            // Wall hit makes it spin around Y axis (tumble sideways) and Z (recoil)
+            c.vx = -c.vx * BOUNCE_WALL;
+            c.vy *= 0.92;
             const wallStrength = Math.min(1.5, Math.abs(incomingVx) / 500);
-            c.rotVY += Math.sign(incomingVx) * wallStrength * 4;
+            c.rotVY += Math.sign(incomingVx) * wallStrength * 3;
             c.rotVZ -= Math.sign(incomingVx) * wallStrength * 2;
-            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
           } else if (penRight < penLeft && c.vx < 0) {
             // Cube moving LEFT, hit RIGHT wall
             c.x = stairRight + halfS;
             const incomingVx = c.vx;
-            c.vx = -c.vx * BOUNCE_DAMP;
-            c.vy *= 0.95;
+            c.vx = -c.vx * BOUNCE_WALL;
+            c.vy *= 0.92;
             const wallStrength = Math.min(1.5, Math.abs(incomingVx) / 500);
-            c.rotVY -= wallStrength * 4;
+            c.rotVY -= wallStrength * 3;
             c.rotVZ += wallStrength * 2;
-            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
           }
         }
       }
@@ -1164,17 +1173,27 @@ function SvgCube3D({
   }, []);
 
   const halfSize = size / 2;
-  const persp = 8.0; // higher = more orthographic (cube looks more uniform from all angles)
+  const persp = 8.0;
   const rx = cubeRef.current.rotX;
   const ry = cubeRef.current.rotY;
   const rz = cubeRef.current.rotZ;
   const dynamicSize = cubeRef.current.size;
   const scale = dynamicSize / size;
+  const isBall = cubeRef.current.isBall;
 
-  // Project all 8 vertices (viewer at +z looking toward -z; +z is closer = bigger)
+  // FIXED viewing angle (isometric camera) — applied AFTER cube's own orientation.
+  // This means the cube's physics orientation (rotX/Y/Z) represents the actual
+  // cube rotation in the world, while the view angle is a constant camera tilt.
+  const VIEW_X = 0.5;
+  const VIEW_Y = -0.55;
+
+  // Project all 8 vertices: first rotate by cube orientation, THEN by view angle
   const projected: [number, number, number][] = CUBE_VERTS.map((v) => {
-    const [x, y, z] = rotateXYZ(v, rx, ry, rz);
-    const f = persp / (persp - z); // perspective: z=+1 closer (bigger), z=-1 farther
+    let [x, y, z] = rotateXYZ(v, rx, ry, rz);
+    // Apply fixed viewing angle
+    const r2 = rotateXYZ([x, y, z], VIEW_X, VIEW_Y, 0);
+    x = r2[0]; y = r2[1]; z = r2[2];
+    const f = persp / (persp - z);
     return [x * halfSize * f * scale, y * halfSize * f * scale, z];
   });
 
@@ -1233,6 +1252,48 @@ function SvgCube3D({
 
   // Render via SVG. Box is centered in a renderSize area; math center = (0,0).
   // The math bottom (halfSize) should align with the View's center (which is now CUBE_SIZE_BASE/2 above the renderSize bottom)
+  if (isBall) {
+    // === BALL MODE: render as sphere ===
+    const ballR = halfSize * scale * 1.05;
+    const mainColor = hasPower && powerColor ? powerColor : "#EC4899";
+    const lightShade = lighten(mainColor);
+    const darkShade = darken(mainColor, 0.45);
+    // Apply yOffset to keep ball sitting on stair (consistent with cube rendering)
+    return (
+      <Svg width={renderSize} height={renderSize} viewBox={`${-renderSize / 2} ${-renderSize / 2} ${renderSize} ${renderSize}`}>
+        <Defs>
+          <SvgLG id={`ballGrad-${Math.round(ballR)}`} x1="0.3" y1="0.2" x2="0.7" y2="0.9">
+            <Stop offset="0" stopColor={lightShade} stopOpacity="1" />
+            <Stop offset="0.55" stopColor={mainColor} stopOpacity="1" />
+            <Stop offset="1" stopColor={darkShade} stopOpacity="1" />
+          </SvgLG>
+        </Defs>
+        {/* Ball body */}
+        <Polygon
+          points={Array.from({ length: 32 }).map((_, i) => {
+            const theta = (i / 32) * Math.PI * 2;
+            const x = Math.cos(theta) * ballR;
+            const yVal = Math.sin(theta) * ballR + (halfSize * scale - ballR);
+            return `${x.toFixed(2)},${yVal.toFixed(2)}`;
+          }).join(" ")}
+          fill={`url(#ballGrad-${Math.round(ballR)})`}
+          stroke={darken(mainColor, 0.7)}
+          strokeWidth={1.5}
+        />
+        {/* Highlight spot */}
+        <Polygon
+          points={Array.from({ length: 16 }).map((_, i) => {
+            const theta = (i / 16) * Math.PI * 2;
+            const hx = -ballR * 0.3 + Math.cos(theta) * ballR * 0.25;
+            const hy = -ballR * 0.35 + Math.sin(theta) * ballR * 0.18 + (halfSize * scale - ballR);
+            return `${hx.toFixed(2)},${hy.toFixed(2)}`;
+          }).join(" ")}
+          fill="#FFFFFF"
+          fillOpacity={0.45}
+        />
+      </Svg>
+    );
+  }
   return (
     <Svg width={renderSize} height={renderSize} viewBox={`${-renderSize / 2} ${-renderSize / 2} ${renderSize} ${renderSize}`}>
       {facesToRender.map((f, i) => {
