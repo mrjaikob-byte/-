@@ -1244,7 +1244,7 @@ function SvgCube3D({
   }, []);
 
   const halfSize = size / 2;
-  const persp = 8.0;
+  const persp = 10.0; // more orthographic — cube looks consistent at all angles
   const rx = cubeRef.current.rotX;
   const ry = cubeRef.current.rotY;
   const rz = cubeRef.current.rotZ;
@@ -1252,19 +1252,15 @@ function SvgCube3D({
   const scale = dynamicSize / size;
   const isBall = cubeRef.current.isBall;
 
-  // Detect if cube should render as flat 2D (any time it's on ground)
-  const physRef = cubeRef.current as any;
-  const isAtRest = !isBall && physRef.onGround === true;
-
-  // FIXED viewing angle (isometric camera) — applied AFTER cube's own orientation.
-  // Gentler angles so cube looks more flat when at rest.
-  const VIEW_X = 0.3;
-  const VIEW_Y = -0.3;
+  // VIEW angle: only Y rotation, no X tilt.
+  // This keeps the cube's bottom edge HORIZONTAL (looks flat on ground)
+  // while showing the right face for a clean 3D look.
+  const VIEW_X = 0;
+  const VIEW_Y = -0.45;
 
   // Project all 8 vertices: first rotate by cube orientation, THEN by view angle
   const projected: [number, number, number][] = CUBE_VERTS.map((v) => {
     let [x, y, z] = rotateXYZ(v, rx, ry, rz);
-    // Apply fixed viewing angle
     const r2 = rotateXYZ([x, y, z], VIEW_X, VIEW_Y, 0);
     x = r2[0]; y = r2[1]; z = r2[2];
     const f = persp / (persp - z);
@@ -1326,38 +1322,6 @@ function SvgCube3D({
 
   // Render via SVG. Box is centered in a renderSize area; math center = (0,0).
   // The math bottom (halfSize) should align with the View's center (which is now CUBE_SIZE_BASE/2 above the renderSize bottom)
-  // At-rest mode: render flat 2D cube so it looks perfectly face-down (not tilted)
-  if (isAtRest) {
-    const mainColor = hasPower && powerColor ? powerColor : "#EC4899";
-    const lightShade = lighten(mainColor);
-    const darkShade = darken(mainColor, 0.45);
-    const sizeScaled = halfSize * scale * 2;
-    const topY = halfSize * scale - sizeScaled;
-    const topStripH = Math.max(3, sizeScaled * 0.18);
-    return (
-      <Svg width={renderSize} height={renderSize} viewBox={`${-renderSize / 2} ${-renderSize / 2} ${renderSize} ${renderSize}`}>
-        <Defs>
-          <SvgLG id={`restCube-${Math.round(sizeScaled)}`} x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor={mainColor} stopOpacity="1" />
-            <Stop offset="1" stopColor={darkShade} stopOpacity="1" />
-          </SvgLG>
-        </Defs>
-        <Polygon
-          points={`${-sizeScaled/2},${topY} ${sizeScaled/2},${topY} ${sizeScaled/2},${topY + sizeScaled} ${-sizeScaled/2},${topY + sizeScaled}`}
-          fill={`url(#restCube-${Math.round(sizeScaled)})`}
-          stroke={darken(mainColor, 0.7)}
-          strokeWidth={1.5}
-          strokeLinejoin="round"
-        />
-        <Polygon
-          points={`${-sizeScaled/2 + 2},${topY + 2} ${sizeScaled/2 - 2},${topY + 2} ${sizeScaled/2 - 2},${topY + topStripH} ${-sizeScaled/2 + 2},${topY + topStripH}`}
-          fill={lightShade}
-          fillOpacity={0.7}
-        />
-      </Svg>
-    );
-  }
-
   if (isBall) {
     // === BALL MODE: render as sphere ===
     const ballR = halfSize * scale * 1.05;
