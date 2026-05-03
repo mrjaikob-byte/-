@@ -26,8 +26,8 @@ const { width: WIN_W, height: WIN_H } = Dimensions.get("window");
 
 // ========== Constants ==========
 const TILE = 28; // visual unit
-const CUBE_SIZE_BASE = TILE * 0.9; // 50% smaller cube
-const CUBE_RENDER_SIZE = CUBE_SIZE_BASE * 4; // bigger render area to accommodate bigCube power-up scaling
+const CUBE_SIZE_BASE = TILE * 1.35; // larger cube for clear 3D visibility
+const CUBE_RENDER_SIZE = CUBE_SIZE_BASE * 3; // bigger render area to accommodate bigCube power-up scaling
 const STAIR_W = TILE * 5.0; // VERY wide step (long horizontally)
 const STAIR_H = TILE * 1.5; // short rise (short vertically)
 const STAIR_FRONT_H = STAIR_H * 1.0;
@@ -1316,119 +1316,18 @@ function SimpleCube({
   }
 
   // ============================================================================
-  // ===== TRUE 3D CUBE MODE =====
-  // Real 3D cube with 6 faces positioned in 3D space via perspective transforms.
-  // Each face is a View translated to its position in 3D, then rotated around
-  // the cube's 3 axes (rotX, rotY, rotZ). Dice pips on every face show rotation.
+  // ===== TRUE 3D CUBE MODE — delegates to SvgCube3D =====
+  // SVG projection works across all platforms (iOS, Android, Web) because it
+  // does the 3D math manually and renders 2D polygons — no need for native
+  // translateZ support. This is how real 3D cube games work on mobile.
   // ============================================================================
-  const rotX = cubeRef.current.rotX || 0;
-  const rotY = cubeRef.current.rotY || 0;
-  const halfSize = dynamicSize / 2;
-
-  // Face background colors (slight variation per face for 3D look)
-  const colorFront  = faceColor;
-  const colorBack   = darken(baseHex, 0.15);
-  const colorRight  = darken(baseHex, 0.08);
-  const colorLeft   = darken(baseHex, 0.12);
-  const colorTop    = lighten(baseHex);
-  const colorBottom = darken(baseHex, 0.45);
-
-  // Pip sizing for dice pattern on each face
-  const pipD = Math.max(3, dynamicSize * 0.13);
-  const pipPad = dynamicSize * 0.17;
-
-  // Helper: pip positions for a given face value (1-6)
-  const pipPositions = (face: number): Array<{ cx: number; cy: number }> => {
-    const s = dynamicSize;
-    const p = pipPad + pipD / 2;
-    const cen = s / 2;
-    const far = s - pipPad - pipD / 2;
-    switch (face) {
-      case 1: return [{ cx: cen, cy: cen }];
-      case 2: return [{ cx: p, cy: p }, { cx: far, cy: far }];
-      case 3: return [{ cx: p, cy: p }, { cx: cen, cy: cen }, { cx: far, cy: far }];
-      case 4: return [
-        { cx: p, cy: p }, { cx: far, cy: p },
-        { cx: p, cy: far }, { cx: far, cy: far },
-      ];
-      case 5: return [
-        { cx: p, cy: p }, { cx: far, cy: p },
-        { cx: cen, cy: cen },
-        { cx: p, cy: far }, { cx: far, cy: far },
-      ];
-      case 6: return [
-        { cx: p, cy: p }, { cx: far, cy: p },
-        { cx: p, cy: cen }, { cx: far, cy: cen },
-        { cx: p, cy: far }, { cx: far, cy: far },
-      ];
-      default: return [];
-    }
-  };
-
-  // Render a single face with dice pips
-  const Face = ({
-    bg,
-    faceValue,
-    transform,
-  }: {
-    bg: string;
-    faceValue: number;
-    transform: any[];
-  }) => (
-    <View
-      style={{
-        position: "absolute",
-        left: 0,
-        top: 0,
-        width: dynamicSize,
-        height: dynamicSize,
-        backgroundColor: bg,
-        borderWidth: 1.5,
-        borderColor: edgeColor,
-        borderRadius: Math.max(2, dynamicSize * 0.06),
-        overflow: "hidden",
-        transform,
-      }}
-    >
-      {/* Subtle shading gradient for depth on each face */}
-      <LinearGradient
-        colors={["rgba(255,255,255,0.25)", "rgba(0,0,0,0.15)"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      {/* Dice pips */}
-      {pipPositions(faceValue).map((p, i) => (
-        <View
-          key={i}
-          style={{
-            position: "absolute",
-            left: p.cx - pipD / 2,
-            top: p.cy - pipD / 2,
-            width: pipD,
-            height: pipD,
-            borderRadius: pipD / 2,
-            backgroundColor: pipColor,
-          }}
-        />
-      ))}
-    </View>
-  );
-
-  // The outer 3D scene container needs perspective + the cube rotation.
-  // Each face uses: first rotate to its orientation, then translate "outward" by halfSize.
-  const cubeRotTransform: any[] = [
-    { perspective: 800 },
-    { rotateX: `${(rotX * 180) / Math.PI}deg` },
-    { rotateY: `${(rotY * 180) / Math.PI}deg` },
-    { rotateZ: `${(rotZ * 180) / Math.PI}deg` },
-  ];
-
   return (
     <View
       style={{
         width: dynamicSize,
         height: dynamicSize,
+        alignItems: "center",
+        justifyContent: "center",
       }}
     >
       {/* Ground shadow */}
@@ -1443,28 +1342,13 @@ function SimpleCube({
           backgroundColor: "rgba(0,0,0,0.4)",
         }}
       />
-
-      {/* 3D scene (with perspective + overall rotation) */}
-      <View
-        style={{
-          width: dynamicSize,
-          height: dynamicSize,
-          transform: cubeRotTransform,
-        }}
-      >
-        {/* Front face (value 1) - forward */}
-        <Face bg={colorFront} faceValue={1} transform={[{ translateZ: halfSize }]} />
-        {/* Back face (value 6) - opposite 1 */}
-        <Face bg={colorBack} faceValue={6} transform={[{ rotateY: "180deg" }, { translateZ: halfSize }]} />
-        {/* Right face (value 3) */}
-        <Face bg={colorRight} faceValue={3} transform={[{ rotateY: "90deg" }, { translateZ: halfSize }]} />
-        {/* Left face (value 4) - opposite 3 */}
-        <Face bg={colorLeft} faceValue={4} transform={[{ rotateY: "-90deg" }, { translateZ: halfSize }]} />
-        {/* Top face (value 2) */}
-        <Face bg={colorTop} faceValue={2} transform={[{ rotateX: "90deg" }, { translateZ: halfSize }]} />
-        {/* Bottom face (value 5) - opposite 2 */}
-        <Face bg={colorBottom} faceValue={5} transform={[{ rotateX: "-90deg" }, { translateZ: halfSize }]} />
-      </View>
+      <SvgCube3D
+        size={size}
+        renderSize={renderSize}
+        cubeRef={cubeRef}
+        hasPower={hasPower}
+        powerColor={powerColor}
+      />
     </View>
   );
 }
