@@ -84,6 +84,26 @@ type Stair = {
   broken: boolean;
 };
 
+// ========== Biome helpers (background changes with stair progress) ==========
+function getBgColorsForStair(stairI: number): [string, string, string, string] {
+  // 0-200 = Space (dark, stars), 200-400 = Sky (blue), 400-600 = Near ground (light), 600-1000 = Ground (earth)
+  if (stairI < 200) {
+    return ["#0B1020", "#1E1B4B", "#312E81", "#4C1D95"]; // space
+  } else if (stairI < 400) {
+    return ["#1E3A8A", "#2563EB", "#38BDF8", "#BAE6FD"]; // sky
+  } else if (stairI < 600) {
+    return ["#7DD3FC", "#FDE68A", "#FCA5A5", "#D1FAE5"]; // near-ground (sunrise/horizon)
+  } else {
+    return ["#D4A574", "#A16207", "#78350F", "#451A03"]; // earth / ground
+  }
+}
+function getBiomeLabel(stairI: number): string {
+  if (stairI < 200) return "🌌 الفضاء";
+  if (stairI < 400) return "☁️ السماء";
+  if (stairI < 600) return "🌄 قرب الأرض";
+  return "🌍 الأرض";
+}
+
 // ========== Build stairs ==========
 function buildStairs(): Stair[] {
   const arr: Stair[] = [];
@@ -113,6 +133,7 @@ export default function StairCube() {
   type Phase = "menu" | "aim" | "power" | "flight" | "ended";
   const [phase, setPhase] = useState<Phase>("menu");
   const [playerName, setPlayerName] = useState("لاعب");
+  const [nameError, setNameError] = useState("");
 
   // ===== Game refs =====
   const stairsRef = useRef<Stair[]>([]);
@@ -122,6 +143,7 @@ export default function StairCube() {
     rotX: 0, rotY: 0, rotZ: 0,
     rotVX: 0, rotVY: 0, rotVZ: 0,
     isBall: false,
+    hasBrokenFloor: false,
     onGround: false,
     onStair: -1,
   }).current;
@@ -132,6 +154,7 @@ export default function StairCube() {
   const stoppedTimerRef = useRef(0);
   const crossedFinishRef = useRef(false);
   const hasThrownRef = useRef(false);
+  const finishTimerRef = useRef<any>(null);
 
   // Visible UI state
   const [hud, setHud] = useState({
@@ -181,8 +204,14 @@ export default function StairCube() {
     cube.rotX = 0; cube.rotY = 0; cube.rotZ = 0;
     cube.rotVX = 0; cube.rotVY = 0; cube.rotVZ = 0;
     cube.isBall = false;
+    cube.hasBrokenFloor = false;
     cube.onGround = true;
     cube.onStair = START_STAIR;
+    activePowerRef.current = null;
+    stoppedTimerRef.current = 0;
+    crossedFinishRef.current = false;
+    hasThrownRef.current = false;
+    if (finishTimerRef.current) { clearTimeout(finishTimerRef.current); finishTimerRef.current = null; }
     aim.angle = 0; aim.dir = 1; aim.locked = false;
     power.value = 0; power.locked = false; power.dir = 1;
     activePowerRef.current = null;
@@ -549,6 +578,23 @@ export default function StairCube() {
               triggerRandomPower(s);
             }
           }
+          // BROKEN FLOOR POWER: any stair cube touches disappears after a tiny delay
+          if (c.hasBrokenFloor && !s.broken && s.i !== FINISH_LINE_INDEX) {
+            // Delay slightly so cube registers the touch
+            setTimeout(() => { s.broken = true; setViewportBucket((v) => v + 1); }, 120);
+          }
+          // FINISH LINE: cube lands on finish stair → heavy friction to stop it
+          if (s.i === FINISH_LINE_INDEX && phase === "flight") {
+            crossedFinishRef.current = true;
+            // Apply strong braking so cube slides briefly then stops
+            c.vx *= 0.3;
+            // Schedule game end after a short tumble (1 second)
+            if (!finishTimerRef.current) {
+              finishTimerRef.current = setTimeout(() => {
+                endGame(true);
+              }, 1200);
+            }
+          }
           c.onStair = s.i;
         } else {
           // === HIT A SIDE WALL ===
@@ -561,9 +607,16 @@ export default function StairCube() {
             const wallStrength = Math.min(1.5, Math.abs(incomingVx) / 500);
             c.rotVY += Math.sign(incomingVx) * wallStrength * 3;
             c.rotVZ -= Math.sign(incomingVx) * wallStrength * 2;
+            // Wall hit counts as touching the stair → mark it touched (turns green + point)
+            if (!s.touched) {
+              s.touched = true;
+              try { Haptics.selectionAsync(); } catch {}
+              if (s.isPower && phase === "flight") {
+                triggerRandomPower(s);
+              }
+            }
             try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
           } else if (penRight < penLeft && c.vx < 0) {
-            // Cube moving LEFT, hit RIGHT wall
             c.x = stairRight + halfS;
             const incomingVx = c.vx;
             c.vx = -c.vx * BOUNCE_WALL;
@@ -571,6 +624,13 @@ export default function StairCube() {
             const wallStrength = Math.min(1.5, Math.abs(incomingVx) / 500);
             c.rotVY -= wallStrength * 3;
             c.rotVZ += wallStrength * 2;
+            if (!s.touched) {
+              s.touched = true;
+              try { Haptics.selectionAsync(); } catch {}
+              if (s.isPower && phase === "flight") {
+                triggerRandomPower(s);
+              }
+            }
             try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
           }
         }
@@ -582,13 +642,12 @@ export default function StairCube() {
     const t = POWERUPS_POOL[Math.floor(Math.random() * POWERUPS_POOL.length)];
     const c = cube;
     if (t === "broken") {
-      // Break stairs around this one
-      for (let k = -2; k <= 2; k++) {
-        const sx = stairsRef.current[s.i + k];
-        if (sx) sx.broken = true;
-      }
-      pushFloat(s.x + STAIR_W / 2, s.y - 30, "💥 محطم!", "#DC2626");
-      try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); } catch {}
+      // BROKEN FLOOR POWER: any stair the cube touches afterward disappears
+      c.hasBrokenFloor = true;
+      activePowerRef.current = { type: t, ttl: 4.5 };
+      setHud((h) => ({ ...h, activePower: { type: t, ttl: 4.5 } }));
+      pushFloat(s.x + STAIR_W / 2, s.y - 30, "💥 محطم الأرضيات!", "#DC2626");
+      try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); } catch {}
       return;
     }
     if (t === "bigCube") c.size = CUBE_SIZE_BASE * 1.6;
@@ -680,13 +739,18 @@ export default function StairCube() {
     <View style={styles.root}>
       <Stack.Screen options={{ headerShown: false, animation: "fade" }} />
       <StatusBar hidden />
-      {/* Background gradient */}
+      {/* Layered background — changes based on stair index reached */}
       <LinearGradient
-        colors={["#0F172A", "#1E1B4B", "#312E81", "#4C1D95"]}
+        colors={getBgColorsForStair(lastViewportBucketRef.current)}
         style={StyleSheet.absoluteFill}
       />
-      {/* Stars */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      {/* Layer label (current biome) */}
+      {phase !== "menu" && (
+        <Text style={styles.biomeLabel}>{getBiomeLabel(lastViewportBucketRef.current)}</Text>
+      )}
+      {/* Stars (only visible in space biome 0-200) */}
+      {lastViewportBucketRef.current < 200 && (
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
         {Array.from({ length: 60 }).map((_, i) => (
           <View
             key={i}
@@ -703,6 +767,7 @@ export default function StairCube() {
           />
         ))}
       </View>
+      )}
 
       {/* World container (translated by camera, scaled by speed) */}
       <Animated.View
@@ -868,9 +933,18 @@ export default function StairCube() {
             <View style={styles.nameBox}>
               <Text style={styles.nameLabel}>اسم اللاعب</Text>
               <TextInput
-                style={styles.nameInput}
+                style={[styles.nameInput, nameError && { borderColor: "#EF4444" }]}
                 value={playerName}
-                onChangeText={(t) => setPlayerName(t.slice(0, 16))}
+                onChangeText={(t) => {
+                  const v = t.slice(0, 16);
+                  setPlayerName(v);
+                  // Check uniqueness against high score list (case-insensitive)
+                  const trimmed = v.trim();
+                  const taken = hud.highScores.some(
+                    (h) => h.name.trim().toLowerCase() === trimmed.toLowerCase() && trimmed.length > 0
+                  );
+                  setNameError(taken ? "هذا الاسم مستخدم ✋" : "");
+                }}
                 placeholder="أدخل اسمك"
                 placeholderTextColor="rgba(255,255,255,0.4)"
                 maxLength={16}
@@ -878,11 +952,14 @@ export default function StairCube() {
                 returnKeyType="done"
                 onSubmitEditing={Keyboard.dismiss}
               />
+              {nameError ? (
+                <Text style={styles.nameErrorTxt}>{nameError}</Text>
+              ) : null}
             </View>
 
             <Pressable
-              style={[styles.startBtn, !playerName.trim() && { opacity: 0.45 }]}
-              disabled={!playerName.trim()}
+              style={[styles.startBtn, (!playerName.trim() || !!nameError) && { opacity: 0.45 }]}
+              disabled={!playerName.trim() || !!nameError}
               onPress={() => {
                 Keyboard.dismiss();
                 onTap();
@@ -1053,56 +1130,49 @@ function Stair3D({ stair }: { stair: Stair }) {
           {stair.i}
         </Text>
       )}
-      {/* FINISH LINE marker at the goal stair */}
+      {/* FINISH LINE — wide checkered strip directly on the stair */}
       {stair.i === FINISH_LINE_INDEX && (
         <>
+          {/* Checkered pattern across the entire top of the stair */}
           <View
             style={{
               position: "absolute",
-              left: stair.x + STAIR_W / 2 - 2,
-              top: stair.y - 120,
-              width: 4,
-              height: 120,
-              backgroundColor: "#FFFFFF",
-            }}
-          />
-          <View
-            style={{
-              position: "absolute",
-              left: stair.x + STAIR_W / 2 + 2,
-              top: stair.y - 120,
-              width: 56,
-              height: 36,
+              left: stair.x,
+              top: stair.y - 8,
+              width: STAIR_W,
+              height: 12,
               flexDirection: "row",
               flexWrap: "wrap",
+              overflow: "hidden",
               borderWidth: 1,
               borderColor: "#000",
-              overflow: "hidden",
             }}
           >
-            {Array.from({ length: 24 }).map((_, k) => {
-              const r = Math.floor(k / 8);
-              const c = k % 8;
+            {Array.from({ length: Math.ceil(STAIR_W / 14) * 2 }).map((_, k) => {
+              const cols = Math.ceil(STAIR_W / 14);
+              const r = Math.floor(k / cols);
+              const c = k % cols;
               const black = (r + c) % 2 === 0;
               return (
                 <View
                   key={k}
-                  style={{ width: 7, height: 12, backgroundColor: black ? "#000" : "#fff" }}
+                  style={{ width: 14, height: 6, backgroundColor: black ? "#000" : "#fff" }}
                 />
               );
             })}
           </View>
+          {/* Finish label floating above */}
           <Text
             style={{
               position: "absolute",
-              left: stair.x - 30,
-              top: stair.y - 150,
-              width: STAIR_W + 60,
+              left: stair.x,
+              top: stair.y - 42,
+              width: STAIR_W,
               textAlign: "center",
               color: "#FBBF24",
-              fontSize: 14,
+              fontSize: 15,
               fontWeight: "900",
-              textShadow: "0px 0px 8px rgba(0,0,0,0.9)",
+              textShadow: "0px 0px 10px rgba(0,0,0,0.95)",
             }}
           >
             🏁 خط النهاية
@@ -1182,16 +1252,9 @@ function SvgCube3D({
   const scale = dynamicSize / size;
   const isBall = cubeRef.current.isBall;
 
-  // Detect if cube is "at rest" (no rotation velocity, no significant rotation)
-  // Access physics ref via cubeRef.current
+  // Detect if cube should render as flat 2D (any time it's on ground)
   const physRef = cubeRef.current as any;
-  const isAtRest = !isBall && physRef.onGround === true
-    && Math.abs(physRef.vx || 0) < 15
-    && Math.abs(physRef.vy || 0) < 5
-    && Math.abs(physRef.rotVZ || 0) < 0.2
-    && Math.abs(physRef.rotVX || 0) < 0.2
-    && Math.abs(physRef.rotVY || 0) < 0.2
-    && Math.abs(rx) < 0.1 && Math.abs(ry) < 0.1;
+  const isAtRest = !isBall && physRef.onGround === true;
 
   // FIXED viewing angle (isometric camera) — applied AFTER cube's own orientation.
   // Gentler angles so cube looks more flat when at rest.
@@ -1626,6 +1689,28 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 17,
     fontWeight: "800",
+  },
+  biomeLabel: {
+    position: "absolute",
+    top: 60,
+    alignSelf: "center",
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "900",
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    overflow: "hidden",
+    textShadow: "0px 0px 4px rgba(0,0,0,0.8)",
+    zIndex: 5,
+  },
+  nameErrorTxt: {
+    color: "#F87171",
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 6,
+    textShadow: "0px 0px 6px rgba(0,0,0,0.7)",
   },
   scoreBox: {
     width: "85%", maxWidth: 360,
