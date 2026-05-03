@@ -530,30 +530,21 @@ export default function StairCube() {
               // === FLAT LANDING === : cube stays down, minimal bounce
               const bounce = c.isBall ? 0.65 : BOUNCE_DAMP * 0.4;
               c.vy = -c.vy * bounce;
-              c.vx *= 0.995; // almost NO friction on flat landing — preserve slide
-              c.rotVZ *= 0.5;
-              c.rotVX *= 0.5;
-              c.rotVY *= 0.5;
+              c.vx *= 0.995;
+              // Damp rotation quickly on flat landing
+              c.rotVZ *= 0.3;
               if (Math.abs(c.vy) < 60) {
                 c.vy = 0;
                 c.onGround = true;
               }
             } else {
-              // === EDGE / CORNER LANDING === : tumble!
+              // === EDGE LANDING === : cube tumbles around Z axis only (realistic rolling)
               const bounce = c.isBall ? 0.65 : BOUNCE_DAMP;
               c.vy = -c.vy * bounce;
               c.vx *= 0.95;
-              // Tumble rotation: direction depends on which way cube is leaning
-              // The cube tips TOWARDS the leaning direction (torque from weight)
-              const leanSign = Math.sin(c.rotZ * 2); // positive if leaning one way
-              const tumbleStrength = impactStrength * distFromFlat * 12;
-              c.rotVZ += leanSign * tumbleStrength;
-              // Horizontal velocity also gets a kick from the edge deflection
-              c.vx += leanSign * impactStrength * 80;
-              // Small X/Y wobble
-              c.rotVX += (Math.random() - 0.5) * 2 * distFromFlat;
-              c.rotVY += (Math.random() - 0.5) * 1.5 * distFromFlat;
-              // Settle logic same as before
+              const leanSign = Math.sin(c.rotZ * 2);
+              // Single-axis rotation proportional to impact + lean
+              c.rotVZ += leanSign * impactStrength * distFromFlat * 6;
               if (Math.abs(c.vy) < 50) {
                 c.vy = 0;
                 c.onGround = true;
@@ -642,7 +633,6 @@ export default function StairCube() {
     const t = POWERUPS_POOL[Math.floor(Math.random() * POWERUPS_POOL.length)];
     const c = cube;
     if (t === "broken") {
-      // BROKEN FLOOR POWER: any stair the cube touches afterward disappears
       c.hasBrokenFloor = true;
       activePowerRef.current = { type: t, ttl: 4.5 };
       setHud((h) => ({ ...h, activePower: { type: t, ttl: 4.5 } }));
@@ -650,9 +640,20 @@ export default function StairCube() {
       try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); } catch {}
       return;
     }
+    const oldSize = c.size;
     if (t === "bigCube") c.size = CUBE_SIZE_BASE * 1.6;
     if (t === "smallCube") c.size = CUBE_SIZE_BASE * 0.5;
     if (t === "ball") c.isBall = true;
+    // IMPORTANT: when size changes, adjust cube.y so its bottom stays on the stair
+    if (c.size !== oldSize && c.onStair >= 0 && stairsRef.current[c.onStair]) {
+      const stair = stairsRef.current[c.onStair];
+      c.y = stair.y - c.size / 2;
+      // Also clamp c.x so cube remains fully on stair
+      const halfS = c.size / 2;
+      const stairLeft = stair.x;
+      const stairRight = stair.x + STAIR_W;
+      c.x = Math.max(stairLeft + halfS, Math.min(stairRight - halfS, c.x));
+    }
     activePowerRef.current = { type: t, ttl: 3.5 };
     setHud((h) => ({ ...h, activePower: { type: t, ttl: 3.5 } }));
     pushFloat(s.x + STAIR_W / 2, s.y - 30, `${POWER_LABELS[t].emoji} ${POWER_LABELS[t].label}`, POWER_LABELS[t].color);
@@ -823,7 +824,7 @@ export default function StairCube() {
               justifyContent: "center",
             }}
           >
-            <SvgCube3D
+            <SimpleCube
               size={CUBE_SIZE_BASE}
               renderSize={CUBE_RENDER_SIZE}
               cubeRef={{ current: cube as any }}
@@ -1182,6 +1183,162 @@ function Stair3D({ stair }: { stair: Stair }) {
     </>
   );
 }
+
+// ============================================================================
+// SIMPLE ROBUST 3D CUBE (View-based isometric) — rewritten for reliability
+// ============================================================================
+// Uses layered Views to create a clean isometric cube look:
+//   • Front face (main, flat square with pip)
+//   • Top face (skewed parallelogram)
+//   • Right face (skewed parallelogram)
+// The whole cube rotates as a unit via transform:rotate, keeping consistent
+// appearance at all times. No SVG projection, no perspective math, no clipping.
+// ============================================================================
+function SimpleCube({
+  size,
+  renderSize,
+  cubeRef,
+  hasPower,
+  powerColor,
+}: {
+  size: number;
+  renderSize: number;
+  cubeRef: React.MutableRefObject<any>;
+  hasPower: boolean;
+  powerColor: string;
+}) {
+  // Re-render at 60fps by reading rotation from ref
+  const [, tick] = React.useReducer((v: number) => v + 1, 0);
+  React.useEffect(() => {
+    let raf = 0;
+    const loop = () => { tick(); raf = requestAnimationFrame(loop); };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const rotZ = cubeRef.current.rotZ || 0;
+  const dynamicSize = cubeRef.current.size || size;
+  const isBall = cubeRef.current.isBall;
+
+  // Colors
+  const mainColor = hasPower && powerColor ? powerColor : "#EC4899";
+  const topColor = hasPower ? lighten(powerColor) : "#FBCFE8";
+  const rightColor = hasPower ? darken(powerColor, 0.25) : "#DB2777";
+  const edgeColor = hasPower ? darken(powerColor, 0.6) : "#500724";
+
+  // Ball mode
+  if (isBall) {
+    return (
+      <View
+        style={{
+          width: dynamicSize,
+          height: dynamicSize,
+          borderRadius: dynamicSize / 2,
+          backgroundColor: mainColor,
+          borderWidth: 2,
+          borderColor: edgeColor,
+          boxShadow: `inset -3px -3px 6px ${edgeColor}, inset 3px 3px 6px rgba(255,255,255,0.4)`,
+        }}
+      />
+    );
+  }
+
+  // Isometric depth
+  const depth = dynamicSize * 0.2;
+
+  return (
+    <View
+      style={{
+        width: dynamicSize + depth,
+        height: dynamicSize + depth,
+        transform: [
+          { rotate: `${(rotZ * 180) / Math.PI}deg` },
+        ],
+      }}
+    >
+      {/* Top face (horizontal parallelogram) */}
+      <View
+        style={{
+          position: "absolute",
+          left: depth / 2,
+          top: 0,
+          width: dynamicSize,
+          height: depth,
+          backgroundColor: topColor,
+          transform: [{ skewX: "-45deg" }],
+          borderTopWidth: 1.5,
+          borderTopColor: edgeColor,
+          borderLeftWidth: 1,
+          borderLeftColor: edgeColor,
+          borderRightWidth: 1,
+          borderRightColor: edgeColor,
+        }}
+      />
+      {/* Right face (vertical parallelogram) */}
+      <View
+        style={{
+          position: "absolute",
+          left: dynamicSize,
+          top: depth,
+          width: depth,
+          height: dynamicSize,
+          backgroundColor: rightColor,
+          transform: [{ skewY: "-45deg" }],
+          borderRightWidth: 1.5,
+          borderRightColor: edgeColor,
+          borderTopWidth: 1,
+          borderTopColor: edgeColor,
+          borderBottomWidth: 1,
+          borderBottomColor: edgeColor,
+        }}
+      />
+      {/* Front face (the main square) */}
+      <View
+        style={{
+          position: "absolute",
+          left: 0,
+          top: depth,
+          width: dynamicSize,
+          height: dynamicSize,
+          backgroundColor: mainColor,
+          borderWidth: 2,
+          borderColor: edgeColor,
+          borderRadius: 3,
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+        }}
+      >
+        {/* Subtle highlight in top-left */}
+        <View
+          style={{
+            position: "absolute",
+            top: 3,
+            left: 3,
+            width: dynamicSize * 0.45,
+            height: dynamicSize * 0.45,
+            backgroundColor: "#FFFFFF",
+            opacity: 0.2,
+            borderRadius: 4,
+          }}
+        />
+        {/* Center pip (like a die) */}
+        <View
+          style={{
+            width: dynamicSize * 0.28,
+            height: dynamicSize * 0.28,
+            borderRadius: dynamicSize * 0.14,
+            backgroundColor: "#FFFFFF",
+            borderWidth: 2,
+            borderColor: edgeColor,
+          }}
+        />
+      </View>
+    </View>
+  );
+}
+
+
 
 // ===== TRUE 3D Cube via SVG vertex projection =====
 // Renders a real 3D cube (6 faces) with rotation around all 3 axes,
